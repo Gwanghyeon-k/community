@@ -2,6 +2,9 @@ package community.backend.domain.comment.controller;
 
 import community.backend.domain.comment.dto.request.LoginRequest;
 import community.backend.domain.comment.dto.request.SignUpRequest;
+import community.backend.domain.comment.dto.request.UpdateNicknameRequest;
+import community.backend.domain.comment.dto.request.UpdatePasswordRequest;
+import community.backend.domain.comment.dto.request.UpdateProfileImageRequest;
 import community.backend.domain.comment.dto.response.LoginResponse;
 import community.backend.domain.comment.service.AuthService;
 import community.backend.domain.comment.service.UserService;
@@ -10,6 +13,7 @@ import community.backend.global.apiPayload.code.SuccessCode;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,5 +36,26 @@ public class UserController {
   public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
     LoginResponse response = authService.login(request);
     return ApiResponse.onSuccess(SuccessCode.OK, response);
+  }
+
+  @PatchMapping("/me/nickname")
+  public ResponseEntity<ApiResponse<Void>> updateNickname(@Valid @RequestBody UpdateNicknameRequest request) {
+    Long userId = 1L;
+    userService.updateNickname(userId, request);
+    return ApiResponse.onSuccess(SuccessCode.OK);
+  }
+
+  @PatchMapping("/me/password")
+  public ResponseEntity<ApiResponse<Void>> updatePassword(@Valid @RequestBody UpdatePasswordRequest request) {
+    Long userId = 1L;
+    userService.updatePassword(userId, request);
+    return ApiResponse.onSuccess(SuccessCode.OK);
+  }
+
+  @PostMapping("/me/profile-image")
+  public ResponseEntity<ApiResponse<Void>> updateProfileImage(@Valid @RequestBody UpdateProfileImageRequest request) {
+    Long userId = 1L;
+    userService.updateProfileImage(userId, request);
+    return ApiResponse.onSuccess(SuccessCode.OK);
   }
 }

@@ -1,6 +1,9 @@
 package community.backend.domain.comment.service;
 
 import community.backend.domain.comment.dto.request.SignUpRequest;
+import community.backend.domain.comment.dto.request.UpdateNicknameRequest;
+import community.backend.domain.comment.dto.request.UpdatePasswordRequest;
+import community.backend.domain.comment.dto.request.UpdateProfileImageRequest;
 import community.backend.domain.comment.entity.User;
 import community.backend.domain.comment.repository.UserRepository;
 import community.backend.global.apiPayload.code.ErrorCode;
@@ -29,6 +32,21 @@ public class UserService {
         .build();
 
     userRepository.save(user);
+  }
+
+  public void updateNickname(Long userId, UpdateNicknameRequest request) {
+    if(userRepository.existsByNickname(request.getNickname())) {
+      throw new BusinessException(ErrorCode.DUPLICATE_NICKNAME);
+    }
+    userRepository.updateNickname(userId, request.getNickname());
+  }
+
+  public void updateProfileImage(Long userId, UpdateProfileImageRequest request) {
+    userRepository.updateProfileImage(userId, request.getProfileImageUrl());
+  }
+
+  public void updatePassword(Long userId, UpdatePasswordRequest request) {
+    userRepository.updatePassword(userId, request.getPassword());
   }
 
 }

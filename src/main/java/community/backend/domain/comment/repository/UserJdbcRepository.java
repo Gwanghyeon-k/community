@@ -73,6 +73,30 @@ public class UserJdbcRepository implements UserRepository {
   }
 
   @Override
+  public int updateNickname(Long userId, String nickname) {
+    return jdbcTemplate.update(
+        "UPDATE users SET nickname=?, updated_at=NOW() WHERE id=? AND deleted_at IS NULL",
+        nickname, userId
+    );
+  }
+
+  @Override
+  public int updatePassword(Long userId, String encodedPassword) {
+    return jdbcTemplate.update(
+        "UPDATE users SET password=?, updated_at=NOW() WHERE id=? AND deleted_at IS NULL",
+        encodedPassword, userId
+    );
+  }
+
+  @Override
+  public int updateProfileImage(Long userId, String profileImageUrl) {
+    return jdbcTemplate.update(
+        "UPDATE users SET profile_image_url=?, updated_at=NOW() WHERE id=? AND deleted_at IS NULL",
+        profileImageUrl, userId
+    );
+  }
+
+  @Override
   public long save(User user) {
     String sql = """
         INSERT INTO users(email, password, nickname, profile_image_url, created_at, updated_at)

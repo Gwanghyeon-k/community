@@ -13,6 +13,8 @@ public enum ErrorCode implements BaseStatus {
   UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "COMMON_401", "인증이 필요합니다."),
   FORBIDDEN(HttpStatus.FORBIDDEN, "COMMON_403", "금지된 요청입니다."),
   NOT_FOUND(HttpStatus.NOT_FOUND, "COMMON_404", "찾을 수 없는 요청입니다."),
+
+  DUPLICATE_NICKNAME(HttpStatus.CONFLICT, "USER_409", "중복된 이메일 입니다."),
   ;
 
   private final HttpStatus status;

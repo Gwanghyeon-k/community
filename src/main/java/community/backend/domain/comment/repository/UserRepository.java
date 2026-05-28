@@ -5,9 +5,14 @@ import java.util.Optional;
 
 public interface UserRepository {
 
+  long save(User user);
+
   Optional<User> findByEmail(String email);
   boolean existsByEmail(String email);
   boolean existsByNickname(String nickname);
-  long save(User user);
 
+
+  int updateNickname(Long userId, String nickname);
+  int updatePassword(Long userId, String encodedPassword);
+  int updateProfileImage(Long userId, String profileImageUrl);
 }
