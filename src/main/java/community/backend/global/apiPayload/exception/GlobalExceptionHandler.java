@@ -2,7 +2,13 @@ package community.backend.global.apiPayload.exception;
 
 import community.backend.global.apiPayload.ApiResponse;
 import community.backend.global.apiPayload.code.ErrorCode;
+import jakarta.validation.ConstraintViolationException;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
