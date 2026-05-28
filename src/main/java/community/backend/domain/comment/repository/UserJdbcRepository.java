@@ -5,7 +5,9 @@ import community.backend.global.apiPayload.code.ErrorCode;
 import community.backend.global.apiPayload.exception.BusinessException;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -25,6 +27,17 @@ public class UserJdbcRepository implements UserRepository {
       .nickname(rs.getString("nickname"))
       .profileImageUrl(rs.getString("profile_image_url"))
       .build();
+
+  @Override
+  public Optional<User> findByEmail(String email) {
+    String sql = """
+      SELECT id, email, password, nickname, profile_image_url, created_at, updated_at, deleted_at
+      FROM users
+      WHERE email = ? AND deleted_at IS NULL
+      """;
+    List<User> rows = jdbcTemplate.query(sql, USER_ROW_MAPPER, email);
+    return rows.stream().findFirst();
+  }
 
   @Override
   public boolean existsByEmail(String email) {
