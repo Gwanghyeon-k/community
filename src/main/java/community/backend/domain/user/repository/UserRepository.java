@@ -1,6 +1,6 @@
-package community.backend.domain.comment.repository;
+package community.backend.domain.user.repository;
 
-import community.backend.domain.comment.entity.User;
+import community.backend.domain.user.entity.User;
 import java.util.Optional;
 
 public interface UserRepository {

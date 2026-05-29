@@ -1,4 +1,4 @@
-package community.backend.domain.comment.entity;
+package community.backend.domain.user.entity;
 
 import community.backend.global.entity.BaseEntity;
 import lombok.Builder;

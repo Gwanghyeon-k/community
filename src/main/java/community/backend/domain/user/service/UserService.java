@@ -1,11 +1,11 @@
-package community.backend.domain.comment.service;
+package community.backend.domain.user.service;
 
-import community.backend.domain.comment.dto.request.SignUpRequest;
-import community.backend.domain.comment.dto.request.UpdateNicknameRequest;
-import community.backend.domain.comment.dto.request.UpdatePasswordRequest;
-import community.backend.domain.comment.dto.request.UpdateProfileImageRequest;
-import community.backend.domain.comment.entity.User;
-import community.backend.domain.comment.repository.UserRepository;
+import community.backend.domain.user.dto.request.SignUpRequest;
+import community.backend.domain.user.dto.request.UpdateNicknameRequest;
+import community.backend.domain.user.dto.request.UpdatePasswordRequest;
+import community.backend.domain.user.dto.request.UpdateProfileImageRequest;
+import community.backend.domain.user.entity.User;
+import community.backend.domain.user.repository.UserRepository;
 import community.backend.global.apiPayload.code.ErrorCode;
 import community.backend.global.apiPayload.exception.BusinessException;
 import lombok.RequiredArgsConstructor;

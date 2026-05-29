@@ -1,13 +1,13 @@
-package community.backend.domain.comment.controller;
+package community.backend.domain.user.controller;
 
-import community.backend.domain.comment.dto.request.LoginRequest;
-import community.backend.domain.comment.dto.request.SignUpRequest;
-import community.backend.domain.comment.dto.request.UpdateNicknameRequest;
-import community.backend.domain.comment.dto.request.UpdatePasswordRequest;
-import community.backend.domain.comment.dto.request.UpdateProfileImageRequest;
-import community.backend.domain.comment.dto.response.LoginResponse;
-import community.backend.domain.comment.service.AuthService;
-import community.backend.domain.comment.service.UserService;
+import community.backend.domain.user.dto.request.LoginRequest;
+import community.backend.domain.user.dto.request.SignUpRequest;
+import community.backend.domain.user.dto.request.UpdateNicknameRequest;
+import community.backend.domain.user.dto.request.UpdatePasswordRequest;
+import community.backend.domain.user.dto.request.UpdateProfileImageRequest;
+import community.backend.domain.user.dto.response.LoginResponse;
+import community.backend.domain.user.service.AuthService;
+import community.backend.domain.user.service.UserService;
 import community.backend.global.apiPayload.ApiResponse;
 import community.backend.global.apiPayload.code.SuccessCode;
 import jakarta.validation.Valid;

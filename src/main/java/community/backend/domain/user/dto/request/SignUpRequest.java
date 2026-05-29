@@ -1,4 +1,4 @@
-package community.backend.domain.comment.dto.request;
+package community.backend.domain.user.dto.request;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;

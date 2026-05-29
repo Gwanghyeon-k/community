@@ -6,9 +6,9 @@ import lombok.NoArgsConstructor;
 
 @Getter
 @NoArgsConstructor
-public class LoginRequest {
+public class CreateCommentRequest {
 
-  private String email;
-
-  private String password;
+  @NotBlank(message = "댓글 내용을 입력해주세요.")
+  private String comment;
 }
+
