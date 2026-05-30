@@ -6,13 +6,16 @@ import community.backend.domain.user.dto.request.UpdateNicknameRequest;
 import community.backend.domain.user.dto.request.UpdatePasswordRequest;
 import community.backend.domain.user.dto.request.UpdateProfileImageRequest;
 import community.backend.domain.user.dto.response.LoginResponse;
+import community.backend.domain.user.dto.response.LoginResult;
 import community.backend.domain.user.service.AuthService;
 import community.backend.domain.user.service.UserService;
 import community.backend.global.apiPayload.ApiResponse;
 import community.backend.global.apiPayload.code.SuccessCode;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -33,8 +36,8 @@ public class UserController {
   }
 
   @PostMapping("/login")
-  public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
-    LoginResponse response = authService.login(request);
+  public ResponseEntity<ApiResponse<LoginResult>> login(@Valid @RequestBody LoginRequest request) {
+    LoginResult response = authService.login(request);
     return ApiResponse.onSuccess(SuccessCode.OK, response);
   }
 
@@ -56,6 +59,13 @@ public class UserController {
   public ResponseEntity<ApiResponse<Void>> updateProfileImage(@Valid @RequestBody UpdateProfileImageRequest request) {
     Long userId = 1L;
     userService.updateProfileImage(userId, request);
+    return ApiResponse.onSuccess(SuccessCode.OK);
+  }
+
+  @DeleteMapping("/logout")
+  public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest request) {
+    Long userId = (Long) request.getAttribute("userId");
+    authService.logout(userId);
     return ApiResponse.onSuccess(SuccessCode.OK);
   }
 }

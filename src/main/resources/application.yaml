@@ -10,3 +10,9 @@ spring:
   sql:
     init:
       mode: never
+
+jwt:
+  secret: ${JWT_SECRET}
+  access-token-exp: ${ACCESS_TOKEN_EXP}
+  refresh-token-exp: ${REFRESH_TOKEN_EXP}
+kind: Application
