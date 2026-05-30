@@ -47,14 +47,25 @@ public class PostService {
         .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
   }
 
+  @Transactional
   public void update(Long userId, Long postId, UpdatePostRequest request) {
     Post post = postRepository.findById(postId)
         .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
     if(!post.getUserId().equals(userId)) {
       throw new BusinessException(ErrorCode.FORBIDDEN);
     }
+    int updated = postRepository.updatePost(
+        postId,
+        request.getTitle(),
+        request.getDescription(),
+        request.getPostImageUrl()
+    );
+    if (updated == 0) {
+      throw new BusinessException(ErrorCode.NOT_FOUND);
+    }
   }
 
+  @Transactional
   public void delete(Long userId, Long postId) {
     Post post = postRepository.findById(postId)
         .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));

@@ -3,6 +3,13 @@ package community.backend.domain.post.repository;
 import community.backend.domain.post.dto.response.PostDetailResponse;
 import community.backend.domain.post.dto.response.PostListDetailResponse;
 import community.backend.domain.post.entity.Post;
+import static community.backend.domain.post.repository.PostSql.FIND_DETAIL;
+import static community.backend.domain.post.repository.PostSql.FIND_LIST;
+import static community.backend.domain.post.repository.PostSql.FIND_POST_BY_ID;
+import static community.backend.domain.post.repository.PostSql.INCREASE_VIEW_COUNT;
+import static community.backend.domain.post.repository.PostSql.SAVE_POST;
+import static community.backend.domain.post.repository.PostSql.SOFT_DELETE_POST;
+import static community.backend.domain.post.repository.PostSql.UPDATE_POST;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.format.DateTimeFormatter;
@@ -24,13 +31,9 @@ public class PostJdbcRepository implements PostRepository {
 
   @Override
   public long save(Post post) {
-    String sql = """
-      INSERT INTO posts(user_id,title,description,post_image_url,view_count,like_count,comment_count,created_at,updated_at)
-      VALUES (?,?,?,?,0,0,0,NOW(),NOW())
-      """;
     KeyHolder kh = new GeneratedKeyHolder();
     jdbcTemplate.update(conn -> {
-      PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+      PreparedStatement ps = conn.prepareStatement(SAVE_POST, Statement.RETURN_GENERATED_KEYS);
       ps.setLong(1, post.getUserId());
       ps.setString(2, post.getTitle());
       ps.setString(3, post.getDescription());
@@ -42,13 +45,7 @@ public class PostJdbcRepository implements PostRepository {
 
   @Override
   public List<PostListDetailResponse> findList(Long lastPostId, int size) {
-    String sql = """
-      SELECT p.id, p.title, u.nickname, u.profile_image_url, p.updated_at, p.like_count, p.comment_count, p.view_count
-      FROM posts p JOIN users u ON p.user_id=u.id
-      WHERE p.deleted_at IS NULL AND p.id < ?
-      ORDER BY p.id DESC LIMIT ?
-      """;
-    return jdbcTemplate.query(sql, (rs, n) -> {
+    return jdbcTemplate.query(FIND_LIST, (rs, n) -> {
       long likes = rs.getLong("like_count");
       long views = rs.getLong("view_count");
       return new PostListDetailResponse(
@@ -68,13 +65,7 @@ public class PostJdbcRepository implements PostRepository {
 
   @Override
   public Optional<PostDetailResponse> findDetail(Long postId) {
-    String sql = """
-      SELECT p.id, p.title, p.description, p.post_image_url, p.updated_at, p.like_count, p.view_count,
-             u.nickname, u.profile_image_url
-      FROM posts p JOIN users u ON p.user_id=u.id
-      WHERE p.id=? AND p.deleted_at IS NULL
-      """;
-    List<PostDetailResponse> rows = jdbcTemplate.query(sql, (rs, n) ->
+    List<PostDetailResponse> rows = jdbcTemplate.query(FIND_DETAIL, (rs, n) ->
         new PostDetailResponse(
             rs.getLong("id"),
             rs.getString("title"),
@@ -90,8 +81,7 @@ public class PostJdbcRepository implements PostRepository {
 
   @Override
   public Optional<Post> findById(Long postId) {
-    String sql = "SELECT id,user_id,title,description,post_image_url,view_count,like_count,comment_count FROM posts WHERE id=? AND deleted_at IS NULL";
-    List<Post> rows = jdbcTemplate.query(sql, (rs, n) -> Post.builder()
+    List<Post> rows = jdbcTemplate.query(FIND_POST_BY_ID, (rs, n) -> Post.builder()
         .id(rs.getLong("id"))
         .userId(rs.getLong("user_id"))
         .title(rs.getString("title"))
@@ -106,20 +96,20 @@ public class PostJdbcRepository implements PostRepository {
 
   @Override
   public int increaseViewCount(Long postId) {
-    return jdbcTemplate.update("UPDATE posts SET view_count=view_count+1 WHERE id=? AND deleted_at IS NULL", postId);
+    return jdbcTemplate.update(INCREASE_VIEW_COUNT, postId);
   }
 
   @Override
   public int updatePost(Long postId, String title, String description, String postImageUrl) {
     return jdbcTemplate.update(
-        "UPDATE posts SET title=?, description=?, post_image_url=?, updated_at=NOW() WHERE id=? AND deleted_at IS NULL",
+        UPDATE_POST,
         title, description, postImageUrl, postId
     );
   }
 
   @Override
   public int softDelete(Long postId) {
-    return jdbcTemplate.update("UPDATE posts SET deleted_at=NOW(), updated_at=NOW() WHERE id=? AND deleted_at IS NULL", postId);
+    return jdbcTemplate.update(SOFT_DELETE_POST, postId);
   }
 
   private static String displayCount(long value) {
