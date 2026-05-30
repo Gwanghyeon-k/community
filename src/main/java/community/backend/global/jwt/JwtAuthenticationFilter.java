@@ -11,6 +11,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
+import org.springframework.util.PatternMatchUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
@@ -21,10 +22,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
   public static final String USER_ID_ATTRIBUTE = "authenticatedUserId";
   private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
+  private static final String[] WHITE_LIST = {
+      "/users",
+      "/users/login",
+      "/users/token/refresh"
+  };
 
   @Override
   protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
-    String uri = request.getRequestURI();
+    String uri = normalizePath(request.getRequestURI());
     String method = request.getMethod();
 
     if (HttpMethod.OPTIONS.matches(method)) {
@@ -33,7 +39,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     if ("/error".equals(uri) || PATH_MATCHER.match("/swagger-ui/**", uri) || PATH_MATCHER.match("/v3/api-docs/**", uri)) {
       return true;
     }
-    if ("POST".equals(method) && ("/users".equals(uri) || "/users/login".equals(uri) || "/users/token/refresh".equals(uri))) {
+    if ("POST".equals(method) && PatternMatchUtils.simpleMatch(WHITE_LIST, uri)) {
       return true;
     }
     if ("GET".equals(method) && (PATH_MATCHER.match("/posts/**", uri) || PATH_MATCHER.match("/comments/**", uri))) {
@@ -70,5 +76,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     } catch (Exception exception) {
       response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
     }
+  }
+
+  private String normalizePath(String path) {
+    if (path != null && path.length() > 1 && path.endsWith("/")) {
+      return path.substring(0, path.length() - 1);
+    }
+    return path;
   }
 }

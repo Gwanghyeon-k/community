@@ -5,7 +5,6 @@ import community.backend.global.apiPayload.code.ErrorCode;
 import jakarta.validation.ConstraintViolationException;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -23,6 +22,33 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException exception) {
     ErrorCode errorCode = exception.getErrorCode();
     return ApiResponse.onFailure(errorCode);
+  }
+
+  /**
+   * @Valid 바디 검증 실패 처리.
+   */
+  @ExceptionHandler(MethodArgumentNotValidException.class)
+  public ResponseEntity<ApiResponse<Void>> handleMethodArgumentNotValid(MethodArgumentNotValidException exception) {
+    List<FieldError> fieldErrors = exception.getBindingResult().getFieldErrors();
+    if (fieldErrors.isEmpty()) {
+      return ApiResponse.onFailure(ErrorCode.BAD_REQUEST);
+    }
+
+    fieldErrors.sort(Comparator.comparing(FieldError::getField));
+    return ApiResponse.onFailure(ErrorCode.BAD_REQUEST, fieldErrors.getFirst().getDefaultMessage());
+  }
+
+  /**
+   * @Validated 파라미터/경로 변수 검증 실패 처리.
+   */
+  @ExceptionHandler(ConstraintViolationException.class)
+  public ResponseEntity<ApiResponse<Void>> handleConstraintViolation(ConstraintViolationException exception) {
+    String message = exception.getConstraintViolations().stream()
+        .map(violation -> violation.getMessage())
+        .sorted()
+        .findFirst()
+        .orElse(ErrorCode.BAD_REQUEST.getMessage());
+    return ApiResponse.onFailure(ErrorCode.BAD_REQUEST, message);
   }
 
   /**
