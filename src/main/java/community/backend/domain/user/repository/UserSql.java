@@ -11,6 +11,12 @@ final class UserSql {
       WHERE email = ? AND deleted_at IS NULL
       """;
 
+  static final String FIND_BY_ID = """
+      SELECT id, email, password, nickname, profile_image_url, created_at, updated_at, deleted_at
+      FROM users
+      WHERE id = ? AND deleted_at IS NULL
+      """;
+
   static final String EXISTS_BY_EMAIL = """
       SELECT EXISTS(
         SELECT 1

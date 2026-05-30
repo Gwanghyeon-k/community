@@ -6,6 +6,8 @@ import community.backend.domain.comment.dto.response.CommentListItemResponse;
 import community.backend.domain.comment.service.CommentService;
 import community.backend.global.apiPayload.ApiResponse;
 import community.backend.global.apiPayload.code.SuccessCode;
+import community.backend.global.jwt.AuthenticatedUser;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -32,22 +34,33 @@ public class CommentController {
   }
 
   @PostMapping("/posts/{postId}/comments")
-  public ResponseEntity<ApiResponse<Void>> create(@PathVariable Long postId, @Valid @RequestBody CreateCommentRequest request) {
-    Long userId = 1L;
+  public ResponseEntity<ApiResponse<Void>> create(
+      @PathVariable Long postId,
+      @Valid @RequestBody CreateCommentRequest request,
+      HttpServletRequest httpServletRequest
+  ) {
+    Long userId = AuthenticatedUser.getUserId(httpServletRequest);
     commentService.create(postId, userId, request);
     return ApiResponse.onSuccess(SuccessCode.CREATED);
   }
 
   @PatchMapping("/comments/{commentId}")
-  public ResponseEntity<ApiResponse<Void>> update(@PathVariable Long commentId, @Valid @RequestBody UpdateCommentRequest request) {
-    Long userId = 1L;
+  public ResponseEntity<ApiResponse<Void>> update(
+      @PathVariable Long commentId,
+      @Valid @RequestBody UpdateCommentRequest request,
+      HttpServletRequest httpServletRequest
+  ) {
+    Long userId = AuthenticatedUser.getUserId(httpServletRequest);
     commentService.update(commentId, userId, request);
     return ApiResponse.onSuccess(SuccessCode.OK);
   }
 
   @DeleteMapping("/comments/{commentId}")
-  public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long commentId) {
-    Long userId = 1L;
+  public ResponseEntity<ApiResponse<Void>> delete(
+      @PathVariable Long commentId,
+      HttpServletRequest httpServletRequest
+  ) {
+    Long userId = AuthenticatedUser.getUserId(httpServletRequest);
     commentService.delete(commentId, userId);
     return ApiResponse.onSuccess(SuccessCode.OK);
   }

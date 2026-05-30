@@ -8,6 +8,8 @@ import community.backend.domain.post.dto.response.PostListResponse;
 import community.backend.domain.post.service.PostService;
 import community.backend.global.apiPayload.ApiResponse;
 import community.backend.global.apiPayload.code.SuccessCode;
+import community.backend.global.jwt.AuthenticatedUser;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -20,8 +22,11 @@ public class PostController {
   private final PostService postService;
 
   @PostMapping
-  public ResponseEntity<ApiResponse<CreatePostResponse>> create(@Valid @RequestBody CreatePostRequest request) {
-    Long userId = 1L;
+  public ResponseEntity<ApiResponse<CreatePostResponse>> create(
+      @Valid @RequestBody CreatePostRequest request,
+      HttpServletRequest httpServletRequest
+  ) {
+    Long userId = AuthenticatedUser.getUserId(httpServletRequest);
     return ApiResponse.onSuccess(SuccessCode.CREATED, postService.create(userId, request));
   }
 
@@ -38,15 +43,22 @@ public class PostController {
   }
 
   @PatchMapping("/{postId}")
-  public ResponseEntity<ApiResponse<Void>> update(@PathVariable Long postId, @Valid @RequestBody UpdatePostRequest req) {
-    Long userId = 1L;
+  public ResponseEntity<ApiResponse<Void>> update(
+      @PathVariable Long postId,
+      @Valid @RequestBody UpdatePostRequest req,
+      HttpServletRequest httpServletRequest
+  ) {
+    Long userId = AuthenticatedUser.getUserId(httpServletRequest);
     postService.update(userId, postId, req);
     return ApiResponse.onSuccess(SuccessCode.OK);
   }
 
   @DeleteMapping("/{postId}")
-  public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long postId) {
-    Long userId = 1L;
+  public ResponseEntity<ApiResponse<Void>> delete(
+      @PathVariable Long postId,
+      HttpServletRequest httpServletRequest
+  ) {
+    Long userId = AuthenticatedUser.getUserId(httpServletRequest);
     postService.delete(userId, postId);
     return ApiResponse.onSuccess(SuccessCode.OK);
   }

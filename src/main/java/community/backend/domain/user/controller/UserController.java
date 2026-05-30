@@ -1,15 +1,19 @@
 package community.backend.domain.user.controller;
 
 import community.backend.domain.user.dto.request.LoginRequest;
+import community.backend.domain.user.dto.request.RefreshTokenRequest;
 import community.backend.domain.user.dto.request.SignUpRequest;
 import community.backend.domain.user.dto.request.UpdateNicknameRequest;
 import community.backend.domain.user.dto.request.UpdatePasswordRequest;
 import community.backend.domain.user.dto.request.UpdateProfileImageRequest;
-import community.backend.domain.user.dto.response.LoginResponse;
+import community.backend.domain.user.dto.response.LoginResult;
 import community.backend.domain.user.service.AuthService;
 import community.backend.domain.user.service.UserService;
 import community.backend.global.apiPayload.ApiResponse;
 import community.backend.global.apiPayload.code.SuccessCode;
+import community.backend.global.jwt.AuthenticatedUser;
+import community.backend.global.jwt.dto.TokenResult;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -33,28 +37,43 @@ public class UserController {
   }
 
   @PostMapping("/login")
-  public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
-    LoginResponse response = authService.login(request);
+  public ResponseEntity<ApiResponse<LoginResult>> login(@Valid @RequestBody LoginRequest request) {
+    LoginResult response = authService.login(request);
+    return ApiResponse.onSuccess(SuccessCode.OK, response);
+  }
+
+  @PostMapping("/token/refresh")
+  public ResponseEntity<ApiResponse<TokenResult>> refresh(@Valid @RequestBody RefreshTokenRequest request) {
+    TokenResult response = authService.refresh(request);
     return ApiResponse.onSuccess(SuccessCode.OK, response);
   }
 
   @PatchMapping("/me/nickname")
-  public ResponseEntity<ApiResponse<Void>> updateNickname(@Valid @RequestBody UpdateNicknameRequest request) {
-    Long userId = 1L;
+  public ResponseEntity<ApiResponse<Void>> updateNickname(
+      @Valid @RequestBody UpdateNicknameRequest request,
+      HttpServletRequest httpServletRequest
+  ) {
+    Long userId = AuthenticatedUser.getUserId(httpServletRequest);
     userService.updateNickname(userId, request);
     return ApiResponse.onSuccess(SuccessCode.OK);
   }
 
   @PatchMapping("/me/password")
-  public ResponseEntity<ApiResponse<Void>> updatePassword(@Valid @RequestBody UpdatePasswordRequest request) {
-    Long userId = 1L;
+  public ResponseEntity<ApiResponse<Void>> updatePassword(
+      @Valid @RequestBody UpdatePasswordRequest request,
+      HttpServletRequest httpServletRequest
+  ) {
+    Long userId = AuthenticatedUser.getUserId(httpServletRequest);
     userService.updatePassword(userId, request);
     return ApiResponse.onSuccess(SuccessCode.OK);
   }
 
   @PostMapping("/me/profile-image")
-  public ResponseEntity<ApiResponse<Void>> updateProfileImage(@Valid @RequestBody UpdateProfileImageRequest request) {
-    Long userId = 1L;
+  public ResponseEntity<ApiResponse<Void>> updateProfileImage(
+      @Valid @RequestBody UpdateProfileImageRequest request,
+      HttpServletRequest httpServletRequest
+  ) {
+    Long userId = AuthenticatedUser.getUserId(httpServletRequest);
     userService.updateProfileImage(userId, request);
     return ApiResponse.onSuccess(SuccessCode.OK);
   }

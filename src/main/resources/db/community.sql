@@ -51,3 +51,16 @@ CREATE TABLE `post_likes` (
                               CONSTRAINT `fk_post_likes_post_id` FOREIGN KEY (`post_id`) REFERENCES `posts` (`id`),
                               CONSTRAINT `fk_post_likes_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
 );
+
+CREATE TABLE `refresh_tokens` (
+                                  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '리프레시 토큰 id',
+                                  `user_id` BIGINT NOT NULL COMMENT '유저 id',
+                                  `token` VARCHAR(1024) NOT NULL COMMENT '리프레시 토큰 문자열',
+                                  `expires_at` DATETIME NOT NULL COMMENT '만료 시간',
+                                  `created_at` DATETIME NOT NULL COMMENT '생성 일자',
+                                  `updated_at` DATETIME NOT NULL COMMENT '수정 일자',
+                                  PRIMARY KEY (`id`),
+                                  UNIQUE KEY `ux_refresh_tokens_user_id` (`user_id`),
+                                  UNIQUE KEY `ux_refresh_tokens_token` (`token`),
+                                  CONSTRAINT `fk_refresh_tokens_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
