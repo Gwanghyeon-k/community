@@ -8,7 +8,7 @@ import static community.backend.domain.post.repository.PostSql.FIND_LIST;
 import static community.backend.domain.post.repository.PostSql.FIND_POST_BY_ID;
 import static community.backend.domain.post.repository.PostSql.INCREASE_VIEW_COUNT;
 import static community.backend.domain.post.repository.PostSql.SAVE_POST;
-import static community.backend.domain.post.repository.PostSql.SOFT_DELETE_POST;
+import static community.backend.domain.post.repository.PostSql.DELETE_POST;
 import static community.backend.domain.post.repository.PostSql.UPDATE_POST;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
@@ -108,8 +108,8 @@ public class PostJdbcRepository implements PostRepository {
   }
 
   @Override
-  public int softDelete(Long postId) {
-    return jdbcTemplate.update(SOFT_DELETE_POST, postId);
+  public int delete(Long postId) {
+    return jdbcTemplate.update(DELETE_POST, postId);
   }
 
   private static String displayCount(long value) {

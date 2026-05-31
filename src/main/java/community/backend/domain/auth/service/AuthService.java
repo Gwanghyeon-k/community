@@ -1,5 +1,8 @@
-package community.backend.domain.user.service;
+package community.backend.domain.auth.service;
 
+import community.backend.global.jwt.JwtProperties;
+import community.backend.global.jwt.JwtProvider;
+import community.backend.domain.auth.repository.AuthRepository;
 import community.backend.domain.user.dto.request.LoginRequest;
 import community.backend.domain.user.dto.response.LoginResponse;
 import community.backend.domain.user.dto.response.LoginResult;
@@ -7,9 +10,7 @@ import community.backend.domain.user.entity.User;
 import community.backend.domain.user.repository.UserRepository;
 import community.backend.global.apiPayload.code.ErrorCode;
 import community.backend.global.apiPayload.exception.BusinessException;
-import community.backend.global.auth.JwtProperties;
-import community.backend.global.auth.JwtProvider;
-import community.backend.global.auth.repository.AuthRepository;
+
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

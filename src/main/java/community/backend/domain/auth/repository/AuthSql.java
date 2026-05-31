@@ -1,4 +1,4 @@
-package community.backend.global.auth.repository;
+package community.backend.domain.auth.repository;
 
 final class AuthSql {
   private AuthSql() {}

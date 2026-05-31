@@ -1,5 +1,6 @@
 package community.backend.domain.post.controller;
 
+import community.backend.domain.auth.service.UserContextService;
 import community.backend.domain.post.dto.request.CreatePostRequest;
 import community.backend.domain.post.dto.request.UpdatePostRequest;
 import community.backend.domain.post.dto.response.CreatePostResponse;
@@ -18,10 +19,11 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/posts")
 public class PostController {
   private final PostService postService;
+  private final UserContextService userContextService;
 
   @PostMapping
   public ResponseEntity<ApiResponse<CreatePostResponse>> create(@Valid @RequestBody CreatePostRequest request) {
-    Long userId = 1L;
+    Long userId = userContextService.getUserId();
     return ApiResponse.onSuccess(SuccessCode.CREATED, postService.create(userId, request));
   }
 
@@ -39,14 +41,14 @@ public class PostController {
 
   @PatchMapping("/{postId}")
   public ResponseEntity<ApiResponse<Void>> update(@PathVariable Long postId, @Valid @RequestBody UpdatePostRequest req) {
-    Long userId = 1L;
+    Long userId = userContextService.getUserId();
     postService.update(userId, postId, req);
     return ApiResponse.onSuccess(SuccessCode.OK);
   }
 
   @DeleteMapping("/{postId}")
   public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long postId) {
-    Long userId = 1L;
+    Long userId = userContextService.getUserId();
     postService.delete(userId, postId);
     return ApiResponse.onSuccess(SuccessCode.OK);
   }

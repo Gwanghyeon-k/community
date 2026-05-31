@@ -1,4 +1,4 @@
-package community.backend.global.auth;
+package community.backend.global.jwt;
 
 import lombok.Getter;
 import lombok.Setter;

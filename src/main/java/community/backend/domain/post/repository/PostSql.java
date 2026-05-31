@@ -13,7 +13,7 @@ final class PostSql {
   static final String FIND_LIST = """
       SELECT p.id, p.title, u.nickname, u.profile_image_url, p.updated_at, p.like_count, p.comment_count, p.view_count
       FROM posts p JOIN users u ON p.user_id=u.id
-      WHERE p.deleted_at IS NULL AND p.id < ?
+      WHERE p.id < ?
       ORDER BY p.id DESC LIMIT ?
       """;
 
@@ -21,30 +21,29 @@ final class PostSql {
       SELECT p.id, p.title, p.description, p.post_image_url, p.updated_at, p.like_count, p.view_count,
              u.nickname, u.profile_image_url
       FROM posts p JOIN users u ON p.user_id=u.id
-      WHERE p.id=? AND p.deleted_at IS NULL
+      WHERE p.id=?
       """;
 
   static final String FIND_POST_BY_ID = """
       SELECT id, user_id, title, description, post_image_url, view_count, like_count, comment_count
       FROM posts
-      WHERE id = ? AND deleted_at IS NULL
+      WHERE id = ?
       """;
 
   static final String INCREASE_VIEW_COUNT = """
       UPDATE posts
       SET view_count = view_count + 1
-      WHERE id = ? AND deleted_at IS NULL
+      WHERE id = ?
       """;
 
   static final String UPDATE_POST = """
       UPDATE posts
       SET title = ?, description = ?, post_image_url = ?, updated_at = NOW()
-      WHERE id = ? AND deleted_at IS NULL
+      WHERE id = ?
       """;
 
-  static final String SOFT_DELETE_POST = """
-      UPDATE posts
-      SET deleted_at = NOW(), updated_at = NOW()
-      WHERE id = ? AND deleted_at IS NULL
+  static final String DELETE_POST = """
+      DELETE FROM posts
+      WHERE id = ?
       """;
 }

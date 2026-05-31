@@ -3,6 +3,7 @@ package community.backend.domain.comment.service;
 import community.backend.domain.comment.dto.request.CreateCommentRequest;
 import community.backend.domain.comment.dto.request.UpdateCommentRequest;
 import community.backend.domain.comment.dto.response.CommentListItemResponse;
+import community.backend.domain.comment.dto.response.CommentListResponse;
 import community.backend.domain.comment.entity.Comment;
 import community.backend.domain.comment.repository.CommentRepository;
 import community.backend.global.apiPayload.code.ErrorCode;
@@ -19,15 +20,28 @@ public class CommentService {
   private final CommentRepository commentRepository;
 
   @Transactional(readOnly = true)
-  public List<CommentListItemResponse> listByPost(Long postId) {
+  public CommentListResponse listByPost(Long postId, Long lastCommentId, int size) {
+    if (size < 1) {
+      throw new BusinessException(ErrorCode.BAD_REQUEST);
+    }
     if (!commentRepository.existsPostById(postId)) {
       throw new BusinessException(ErrorCode.NOT_FOUND);
     }
-    return commentRepository.findByPostId(postId);
+
+    Long cursor = lastCommentId == 0 ? Long.MAX_VALUE : lastCommentId;
+    List<CommentListItemResponse> comments = commentRepository.findByPostId(postId, cursor, size);
+
+    boolean isLast = comments.size() < size;
+    Long nextCommentId = isLast || comments.isEmpty() ? null : comments.get(comments.size() - 1).getCommentId();
+
+    return new CommentListResponse(comments, isLast, nextCommentId);
   }
 
   @Transactional
   public void create(Long postId, Long userId, CreateCommentRequest request) {
+    if (userId == null) {
+      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+    }
     if (!commentRepository.existsPostById(postId)) {
       throw new BusinessException(ErrorCode.NOT_FOUND);
     }
@@ -40,9 +54,15 @@ public class CommentService {
   }
 
   @Transactional
-  public void update(Long commentId, Long userId, UpdateCommentRequest request) {
+  public void update(Long postId, Long commentId, Long userId, UpdateCommentRequest request) {
+    if (userId == null) {
+      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+    }
     Comment comment = commentRepository.findById(commentId)
         .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+    if (!comment.getPostId().equals(postId)) {
+      throw new BusinessException(ErrorCode.NOT_FOUND);
+    }
     if (!comment.getUserId().equals(userId)) {
       throw new BusinessException(ErrorCode.FORBIDDEN);
     }
@@ -53,13 +73,19 @@ public class CommentService {
   }
 
   @Transactional
-  public void delete(Long commentId, Long userId) {
+  public void delete(Long postId, Long commentId, Long userId) {
+    if (userId == null) {
+      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+    }
     Comment comment = commentRepository.findById(commentId)
         .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+    if (!comment.getPostId().equals(postId)) {
+      throw new BusinessException(ErrorCode.NOT_FOUND);
+    }
     if (!comment.getUserId().equals(userId)) {
       throw new BusinessException(ErrorCode.FORBIDDEN);
     }
-    int deleted = commentRepository.softDelete(commentId);
+    int deleted = commentRepository.delete(commentId);
     if (deleted == 0) {
       throw new BusinessException(ErrorCode.NOT_FOUND);
     }

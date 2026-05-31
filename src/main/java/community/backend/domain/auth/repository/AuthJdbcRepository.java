@@ -1,10 +1,10 @@
-package community.backend.global.auth.repository;
+package community.backend.domain.auth.repository;
 
-import static community.backend.global.auth.repository.AuthSql.*;
+import static community.backend.domain.auth.repository.AuthSql.DELETE_BY_USER_ID;
+import static community.backend.domain.auth.repository.AuthSql.UPSERT_REFRESH_TOKEN;
 
-import community.backend.global.auth.entity.Auth;
-import java.util.List;
-import java.util.Optional;
+import community.backend.domain.auth.entity.Auth;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -29,18 +29,8 @@ public class AuthJdbcRepository implements AuthRepository {
   }
 
   @Override
-  public Optional<Auth> findByRefreshToken(String token) {
-    List<Auth> rows = jdbcTemplate.query(FIND_BY_REFRESH_TOKEN, ROW_MAPPER, token);
-    return rows.stream().findFirst();
-  }
-
-  @Override
   public int deleteByUserId(Long userId) {
     return jdbcTemplate.update(DELETE_BY_USER_ID, userId);
   }
 
-  @Override
-  public int deleteByRefreshToken(String token) {
-    return jdbcTemplate.update(DELETE_BY_REFRESH_TOKEN, token);
-  }
 }

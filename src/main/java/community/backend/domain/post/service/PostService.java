@@ -72,6 +72,9 @@ public class PostService {
     if (!post.getUserId().equals(userId)) {
       throw new BusinessException(ErrorCode.FORBIDDEN);
     }
-    postRepository.softDelete(postId);
+    int deleted = postRepository.delete(postId);
+    if (deleted == 0) {
+      throw new BusinessException(ErrorCode.NOT_FOUND);
+    }
   }
 }

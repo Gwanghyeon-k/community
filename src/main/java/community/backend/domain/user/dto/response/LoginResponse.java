@@ -1,7 +1,7 @@
 package community.backend.domain.user.dto.response;
 
+import community.backend.domain.auth.dto.TokenInfo;
 import community.backend.domain.user.entity.User;
-import community.backend.global.auth.dto.TokenInfo;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 

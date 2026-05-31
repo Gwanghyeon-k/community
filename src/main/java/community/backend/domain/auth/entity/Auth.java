@@ -1,4 +1,4 @@
-package community.backend.global.auth.entity;
+package community.backend.domain.auth.entity;
 
 import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;

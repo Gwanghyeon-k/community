@@ -8,7 +8,7 @@ import static community.backend.domain.comment.repository.CommentSql.FIND_COMMEN
 import static community.backend.domain.comment.repository.CommentSql.FIND_COMMENTS_BY_POST_ID;
 import static community.backend.domain.comment.repository.CommentSql.INCREASE_POST_COMMENT_COUNT;
 import static community.backend.domain.comment.repository.CommentSql.SAVE_COMMENT;
-import static community.backend.domain.comment.repository.CommentSql.SOFT_DELETE;
+import static community.backend.domain.comment.repository.CommentSql.DELETE_COMMENT;
 import static community.backend.domain.comment.repository.CommentSql.UPDATE_CONTENT;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -44,8 +44,14 @@ public class CommentJdbcRepository implements CommentRepository {
 
   /** 게시글의 댓글 리스트 조회 (작성 순서 정렬)  */
   @Override
-  public List<CommentListItemResponse> findByPostId(Long postId) {
-    return jdbcTemplate.query(FIND_COMMENTS_BY_POST_ID, (rs, rowNum) -> toCommentListItem(rs), postId);
+  public List<CommentListItemResponse> findByPostId(Long postId, Long lastCommentId, int size) {
+    return jdbcTemplate.query(
+        FIND_COMMENTS_BY_POST_ID,
+        (rs, rowNum) -> toCommentListItem(rs),
+        postId,
+        lastCommentId,
+        size
+    );
   }
 
   /** 댓글 저장 */
@@ -77,8 +83,8 @@ public class CommentJdbcRepository implements CommentRepository {
 
   /** 댓글 삭제. */
   @Override
-  public int softDelete(Long commentId) {
-    return jdbcTemplate.update(SOFT_DELETE, commentId);
+  public int delete(Long commentId) {
+    return jdbcTemplate.update(DELETE_COMMENT, commentId);
   }
 
   /** 게시글의 댓글 수 증가 메서드 -> 댓글 작성 시 같이 반영 */

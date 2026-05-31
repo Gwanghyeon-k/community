@@ -1,4 +1,4 @@
-package community.backend.global.auth.dto;
+package community.backend.domain.auth.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
