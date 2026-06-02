@@ -6,9 +6,15 @@ final class UserSql {
   }
 
   static final String FIND_BY_EMAIL = """
-      SELECT id, email, password, nickname, profile_image_url, created_at, updated_at, deleted_at
+      SELECT id, email, password, nickname, profile_image_url, created_at, updated_at
       FROM users
-      WHERE email = ? AND deleted_at IS NULL
+      WHERE email = ?
+      """;
+
+  static final String FIND_BY_ID = """
+      SELECT id, email, password, nickname, profile_image_url, created_at, updated_at
+      FROM users
+      WHERE id = ?
       """;
 
   static final String EXISTS_BY_EMAIL = """
@@ -16,7 +22,6 @@ final class UserSql {
         SELECT 1
         FROM users
         WHERE email = ?
-          AND deleted_at IS NULL
       )
       """;
 
@@ -25,26 +30,25 @@ final class UserSql {
         SELECT 1
         FROM users
         WHERE nickname = ?
-          AND deleted_at IS NULL
       )
       """;
 
   static final String UPDATE_NICKNAME = """
       UPDATE users
       SET nickname = ?, updated_at = NOW()
-      WHERE id = ? AND deleted_at IS NULL
+      WHERE id = ?
       """;
 
   static final String UPDATE_PASSWORD = """
       UPDATE users
       SET password = ?, updated_at = NOW()
-      WHERE id = ? AND deleted_at IS NULL
+      WHERE id = ?
       """;
 
   static final String UPDATE_PROFILE_IMAGE = """
       UPDATE users
       SET profile_image_url = ?, updated_at = NOW()
-      WHERE id = ? AND deleted_at IS NULL
+      WHERE id = ?
       """;
 
   static final String SAVE_USER = """

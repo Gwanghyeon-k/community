@@ -20,5 +20,5 @@ public interface PostRepository {
 
   int updatePost(Long postId, String title, String description, String postImageUrl);
 
-  int softDelete(Long postId);
+  int delete(Long postId);
 }

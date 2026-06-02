@@ -1,9 +1,8 @@
 package community.backend.domain.user.service;
 
 import community.backend.domain.user.dto.request.SignUpRequest;
-import community.backend.domain.user.dto.request.UpdateNicknameRequest;
-import community.backend.domain.user.dto.request.UpdatePasswordRequest;
-import community.backend.domain.user.dto.request.UpdateProfileImageRequest;
+import community.backend.domain.user.dto.request.UpdateUserRequest;
+import community.backend.domain.user.dto.response.UserProfileResponse;
 import community.backend.domain.user.entity.User;
 import community.backend.domain.user.repository.UserRepository;
 import community.backend.global.apiPayload.code.ErrorCode;
@@ -34,19 +33,45 @@ public class UserService {
     userRepository.save(user);
   }
 
-  public void updateNickname(Long userId, UpdateNicknameRequest request) {
-    if(userRepository.existsByNickname(request.getNickname())) {
-      throw new BusinessException(ErrorCode.DUPLICATE_NICKNAME);
+  public UserProfileResponse getUserProfile(Long userId) {
+    User user = userRepository.findById(userId)
+        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+    return UserProfileResponse.from(user);
+  }
+
+  public void updateUser(Long authenticatedUserId, Long targetUserId, UpdateUserRequest request) {
+    if (authenticatedUserId == null) {
+      throw new BusinessException(ErrorCode.UNAUTHORIZED);
     }
-    userRepository.updateNickname(userId, request.getNickname());
-  }
+    if (!authenticatedUserId.equals(targetUserId)) {
+      throw new BusinessException(ErrorCode.FORBIDDEN);
+    }
 
-  public void updateProfileImage(Long userId, UpdateProfileImageRequest request) {
-    userRepository.updateProfileImage(userId, request.getProfileImageUrl());
-  }
+    User user = userRepository.findById(targetUserId)
+        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
 
-  public void updatePassword(Long userId, UpdatePasswordRequest request) {
-    userRepository.updatePassword(userId, request.getPassword());
+    boolean hasNickname = request.getNickname() != null;
+    boolean hasPassword = request.getPassword() != null;
+    boolean hasProfileImage = request.getProfileImageUrl() != null;
+
+    if (!hasNickname && !hasPassword && !hasProfileImage) {
+      throw new BusinessException(ErrorCode.BAD_REQUEST);
+    }
+
+    if (hasNickname && !request.getNickname().equals(user.getNickname())) {
+      if (userRepository.existsByNickname(request.getNickname())) {
+        throw new BusinessException(ErrorCode.DUPLICATE_NICKNAME);
+      }
+      userRepository.updateNickname(targetUserId, request.getNickname());
+    }
+
+    if (hasPassword) {
+      userRepository.updatePassword(targetUserId, request.getPassword());
+    }
+
+    if (hasProfileImage) {
+      userRepository.updateProfileImage(targetUserId, request.getProfileImageUrl());
+    }
   }
 
 }

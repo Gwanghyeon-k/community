@@ -6,6 +6,7 @@ import community.backend.global.apiPayload.exception.BusinessException;
 import static community.backend.domain.user.repository.UserSql.EXISTS_BY_EMAIL;
 import static community.backend.domain.user.repository.UserSql.EXISTS_BY_NICKNAME;
 import static community.backend.domain.user.repository.UserSql.FIND_BY_EMAIL;
+import static community.backend.domain.user.repository.UserSql.FIND_BY_ID;
 import static community.backend.domain.user.repository.UserSql.SAVE_USER;
 import static community.backend.domain.user.repository.UserSql.UPDATE_NICKNAME;
 import static community.backend.domain.user.repository.UserSql.UPDATE_PASSWORD;
@@ -37,6 +38,12 @@ public class UserJdbcRepository implements UserRepository {
   @Override
   public Optional<User> findByEmail(String email) {
     List<User> rows = jdbcTemplate.query(FIND_BY_EMAIL, USER_ROW_MAPPER, email);
+    return rows.stream().findFirst();
+  }
+
+  @Override
+  public Optional<User> findById(Long userId) {
+    List<User> rows = jdbcTemplate.query(FIND_BY_ID, USER_ROW_MAPPER, userId);
     return rows.stream().findFirst();
   }
 

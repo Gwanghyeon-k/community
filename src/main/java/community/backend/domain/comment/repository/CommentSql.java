@@ -10,7 +10,6 @@ final class CommentSql {
         SELECT 1
         FROM posts
         WHERE id = ?
-          AND deleted_at IS NULL
       )
       """;
 
@@ -19,8 +18,9 @@ final class CommentSql {
       FROM comments c
       JOIN users u ON c.user_id = u.id
       WHERE c.post_id = ?
-        AND c.deleted_at IS NULL
-      ORDER BY c.id ASC
+        AND c.id < ?
+      ORDER BY c.id DESC
+      LIMIT ?
       """;
 
   static final String SAVE_COMMENT = """
@@ -32,30 +32,28 @@ final class CommentSql {
       SELECT id, post_id, user_id, content
       FROM comments
       WHERE id = ?
-        AND deleted_at IS NULL
       """;
 
   static final String UPDATE_CONTENT = """
       UPDATE comments
       SET content = ?, updated_at = NOW()
-      WHERE id = ? AND deleted_at IS NULL
+      WHERE id = ?
       """;
 
-  static final String SOFT_DELETE = """
-      UPDATE comments
-      SET deleted_at = NOW(), updated_at = NOW()
-      WHERE id = ? AND deleted_at IS NULL
+  static final String DELETE_COMMENT = """
+      DELETE FROM comments
+      WHERE id = ?
       """;
 
   static final String INCREASE_POST_COMMENT_COUNT = """
       UPDATE posts
       SET comment_count = comment_count + 1
-      WHERE id = ? AND deleted_at IS NULL
+      WHERE id = ?
       """;
 
   static final String DECREASE_POST_COMMENT_COUNT = """
       UPDATE posts
       SET comment_count = CASE WHEN comment_count > 0 THEN comment_count - 1 ELSE 0 END
-      WHERE id = ? AND deleted_at IS NULL
+      WHERE id = ?
       """;
 }
