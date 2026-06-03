@@ -41,5 +41,13 @@ public class Comment extends BaseEntity {
   @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "user_id", nullable = false)
   private User user;
+
+  public void updateContent(String content) {
+    this.content = content;
+  }
+
+  public boolean isOwnedBy(Long userId) {
+    return this.user != null && this.user.getId().equals(userId);
+  }
 }
 

@@ -6,7 +6,6 @@ CREATE TABLE `users` (
                          `profile_image_url` VARCHAR(255) NOT NULL COMMENT '프로필 이미지 url',
                          `created_at` DATETIME NOT NULL COMMENT '생성 일자',
                          `updated_at` DATETIME NOT NULL COMMENT '수정 일자',
-                         `deleted_at` DATETIME NULL COMMENT '삭제 일자',
                          PRIMARY KEY (`id`),
                          UNIQUE KEY `ux_users_email` (`email`),
                          UNIQUE KEY `ux_users_nickname` (`nickname`)
@@ -23,7 +22,6 @@ CREATE TABLE `posts` (
                          `comment_count` BIGINT NOT NULL DEFAULT 0 COMMENT '총 댓글 수',
                          `created_at` DATETIME NOT NULL COMMENT '생성 일자',
                          `updated_at` DATETIME NOT NULL COMMENT '수정 일자',
-                         `deleted_at` DATETIME NULL COMMENT '삭제 일자',
                          PRIMARY KEY (`id`),
                          CONSTRAINT `fk_posts_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -35,7 +33,6 @@ CREATE TABLE `comments` (
                             `content` TEXT NOT NULL COMMENT '댓글 내용',
                             `created_at` DATETIME NOT NULL COMMENT '생성 일자',
                             `updated_at` DATETIME NOT NULL COMMENT '수정 일자',
-                            `deleted_at` DATETIME NULL COMMENT '삭제 일자',
                             PRIMARY KEY (`id`),
                             CONSTRAINT `fk_comments_post_id` FOREIGN KEY (`post_id`) REFERENCES `posts` (`id`) ON DELETE CASCADE,
                             CONSTRAINT `fk_comments_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE

@@ -9,12 +9,14 @@ import community.backend.global.apiPayload.code.ErrorCode;
 import community.backend.global.apiPayload.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
 public class UserService {
   private final UserRepository userRepository;
 
+  @Transactional
   public void signUp(SignUpRequest request) {
     if (userRepository.existsByEmail(request.getEmail())) {
       throw new BusinessException(ErrorCode.BAD_REQUEST);
@@ -33,12 +35,14 @@ public class UserService {
     userRepository.save(user);
   }
 
+  @Transactional(readOnly = true)
   public UserProfileResponse getUserProfile(Long userId) {
     User user = userRepository.findById(userId)
         .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
     return UserProfileResponse.from(user);
   }
 
+  @Transactional
   public void updateUser(Long authenticatedUserId, Long targetUserId, UpdateUserRequest request) {
     if (authenticatedUserId == null) {
       throw new BusinessException(ErrorCode.UNAUTHORIZED);
@@ -62,15 +66,15 @@ public class UserService {
       if (userRepository.existsByNickname(request.getNickname())) {
         throw new BusinessException(ErrorCode.DUPLICATE_NICKNAME);
       }
-      userRepository.updateNickname(targetUserId, request.getNickname());
+      user.updateNickname(request.getNickname());
     }
 
     if (hasPassword) {
-      userRepository.updatePassword(targetUserId, request.getPassword());
+      user.updatePassword(request.getPassword());
     }
 
     if (hasProfileImage) {
-      userRepository.updateProfileImage(targetUserId, request.getProfileImageUrl());
+      user.updateProfileImageUrl(request.getProfileImageUrl());
     }
   }
 

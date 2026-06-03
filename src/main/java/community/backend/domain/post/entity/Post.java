@@ -50,4 +50,26 @@ public class Post extends BaseEntity {
   @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "user_id", nullable = false)
   private User user;
+
+  public void increaseViewCount() {
+    this.viewCount = this.viewCount + 1;
+  }
+
+  public void update(String title, String description, String postImageUrl) {
+    this.title = title;
+    this.description = description;
+    this.postImageUrl = postImageUrl;
+  }
+
+  public boolean isOwnedBy(Long userId) {
+    return this.user != null && this.user.getId().equals(userId);
+  }
+
+  public void increaseCommentCount() {
+    this.commentCount = this.commentCount + 1;
+  }
+
+  public void decreaseCommentCount() {
+    this.commentCount = this.commentCount > 0 ? this.commentCount - 1 : 0;
+  }
 }

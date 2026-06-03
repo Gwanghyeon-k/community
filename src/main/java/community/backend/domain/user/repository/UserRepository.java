@@ -2,18 +2,13 @@ package community.backend.domain.user.repository;
 
 import community.backend.domain.user.entity.User;
 import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface UserRepository {
+public interface UserRepository extends JpaRepository<User, Long> {
 
-  long save(User user);
-
-  Optional<User> findByEmail(String email);
-  Optional<User> findById(Long userId);
   boolean existsByEmail(String email);
+
   boolean existsByNickname(String nickname);
 
-
-  int updateNickname(Long userId, String nickname);
-  int updatePassword(Long userId, String encodedPassword);
-  int updateProfileImage(Long userId, String profileImageUrl);
+  Optional<User> findByEmail(String email);
 }

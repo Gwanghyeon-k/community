@@ -54,4 +54,16 @@ public class User extends BaseEntity {
 
   @OneToMany(mappedBy = "user")
   private List<Comment> comments = new ArrayList<>();
+
+  public void updateNickname(String nickname) {
+    this.nickname = nickname;
+  }
+
+  public void updatePassword(String password) {
+    this.password = password;
+  }
+
+  public void updateProfileImageUrl(String profileImageUrl) {
+    this.profileImageUrl = profileImageUrl;
+  }
 }
