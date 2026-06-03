@@ -16,6 +16,10 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserService {
   private final UserRepository userRepository;
 
+  /***
+   * 회원가입 / 유저 이메일 중복 검증 / 유저 닉네임 중복 검증
+   * @param request
+   */
   @Transactional
   public void signUp(SignUpRequest request) {
     if (userRepository.existsByEmail(request.getEmail())) {
