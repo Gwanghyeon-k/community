@@ -31,10 +31,10 @@ public class PostService {
   @Transactional
   public CreatePostResponse create(Long userId, CreatePostRequest request) {
     if (userId == null) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED);
     }
     User user = userRepository.findById(userId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+        .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
     Post post = postRepository.save(Post.builder()
         .user(user)
         .title(request.getTitle())
@@ -75,7 +75,7 @@ public class PostService {
   @Transactional
   public PostDetailResponse detail(Long postId) throws BusinessException {
     Post post = postRepository.findById(postId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        .orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
     post.increaseViewCount();
     return new PostDetailResponse(
         post.getId(),
@@ -92,12 +92,12 @@ public class PostService {
   @Transactional
   public void update(Long userId, Long postId, UpdatePostRequest request) {
     if (userId == null) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED);
     }
     Post post = postRepository.findById(postId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        .orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
     if (!post.isOwnedBy(userId)) {
-      throw new BusinessException(ErrorCode.FORBIDDEN);
+      throw new BusinessException(ErrorCode.POST_ACCESS_DENIED);
     }
     post.update(request.getTitle(), request.getDescription(), request.getPostImageUrl());
   }
@@ -105,12 +105,12 @@ public class PostService {
   @Transactional
   public void delete(Long userId, Long postId) {
     if (userId == null) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED);
     }
     Post post = postRepository.findById(postId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        .orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
     if (!post.isOwnedBy(userId)) {
-      throw new BusinessException(ErrorCode.FORBIDDEN);
+      throw new BusinessException(ErrorCode.POST_ACCESS_DENIED);
     }
     postRepository.delete(post);
   }
@@ -122,6 +122,9 @@ public class PostService {
     return value.format(FORMATTER);
   }
 
+  /***
+   * 조회 수 변환 메소드
+   */
   private static String displayCount(Long value) {
     long target = value == null ? 0L : value;
     if (target >= 1_000_000) {

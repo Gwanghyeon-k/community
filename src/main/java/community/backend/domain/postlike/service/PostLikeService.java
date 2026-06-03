@@ -26,15 +26,15 @@ public class PostLikeService {
   @Transactional
   public void like(Long postId, Long userId) {
     if (userId == null) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED);
     }
     Post post = postRepository.findById(postId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        .orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
     User user = userRepository.findById(userId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+        .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
     if (postLikeRepository.existsByPostIdAndUserId(postId, userId)) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST);
+      throw new BusinessException(ErrorCode.POST_LIKE_ALREADY_EXISTS);
     }
 
     try {
@@ -43,7 +43,7 @@ public class PostLikeService {
           .user(user)
           .build());
     } catch (DataIntegrityViolationException exception) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST);
+      throw new BusinessException(ErrorCode.POST_LIKE_ALREADY_EXISTS);
     }
     postQuerydslRepository.increaseLikeCount(postId);
   }
@@ -51,14 +51,14 @@ public class PostLikeService {
   @Transactional
   public void unlike(Long postId, Long userId) {
     if (userId == null) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED);
     }
 
     if (!postRepository.existsById(postId)) {
-      throw new BusinessException(ErrorCode.NOT_FOUND);
+      throw new BusinessException(ErrorCode.POST_NOT_FOUND);
     }
     PostLike postLike = postLikeRepository.findByPostIdAndUserId(postId, userId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.BAD_REQUEST));
+        .orElseThrow(() -> new BusinessException(ErrorCode.POST_LIKE_NOT_FOUND));
 
     postLikeRepository.delete(postLike);
     postQuerydslRepository.decreaseLikeCount(postId);

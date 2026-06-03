@@ -28,10 +28,10 @@ public class CommentService {
   @Transactional(readOnly = true)
   public CommentListResponse listByPost(Long postId, Long lastCommentId, int size) {
     if (size < 1) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST);
+      throw new BusinessException(ErrorCode.INVALID_COMMENT_PAGE_SIZE);
     }
     if (!postRepository.existsById(postId)) {
-      throw new BusinessException(ErrorCode.NOT_FOUND);
+      throw new BusinessException(ErrorCode.POST_NOT_FOUND);
     }
 
     Long cursor = lastCommentId == 0 ? Long.MAX_VALUE : lastCommentId;
@@ -46,12 +46,12 @@ public class CommentService {
   @Transactional
   public void create(Long postId, Long userId, CreateCommentRequest request) {
     if (userId == null) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED);
     }
     Post post = postRepository.findById(postId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        .orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
     User user = userRepository.findById(userId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+        .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
     commentRepository.save(Comment.builder()
         .post(post)
@@ -64,12 +64,12 @@ public class CommentService {
   @Transactional
   public void update(Long postId, Long commentId, Long userId, UpdateCommentRequest request) {
     if (userId == null) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED);
     }
     Comment comment = commentRepository.findByIdAndPostId(commentId, postId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        .orElseThrow(() -> new BusinessException(ErrorCode.COMMENT_NOT_FOUND));
     if (!comment.isOwnedBy(userId)) {
-      throw new BusinessException(ErrorCode.FORBIDDEN);
+      throw new BusinessException(ErrorCode.COMMENT_ACCESS_DENIED);
     }
     comment.updateContent(request.getComment());
   }
@@ -77,12 +77,12 @@ public class CommentService {
   @Transactional
   public void delete(Long postId, Long commentId, Long userId) {
     if (userId == null) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED);
     }
     Comment comment = commentRepository.findByIdAndPostId(commentId, postId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        .orElseThrow(() -> new BusinessException(ErrorCode.COMMENT_NOT_FOUND));
     if (!comment.isOwnedBy(userId)) {
-      throw new BusinessException(ErrorCode.FORBIDDEN);
+      throw new BusinessException(ErrorCode.COMMENT_ACCESS_DENIED);
     }
     Post post = comment.getPost();
     commentRepository.delete(comment);

@@ -23,10 +23,10 @@ public class UserService {
   @Transactional
   public void signUp(SignUpRequest request) {
     if (userRepository.existsByEmail(request.getEmail())) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST);
+      throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
     }
     if (userRepository.existsByNickname(request.getNickname())) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST);
+      throw new BusinessException(ErrorCode.DUPLICATE_NICKNAME);
     }
 
     User user = User.builder()
@@ -42,28 +42,28 @@ public class UserService {
   @Transactional(readOnly = true)
   public UserProfileResponse getUserProfile(Long userId) {
     User user = userRepository.findById(userId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
     return UserProfileResponse.from(user);
   }
 
   @Transactional
   public void updateUser(Long authenticatedUserId, Long targetUserId, UpdateUserRequest request) {
     if (authenticatedUserId == null) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED);
     }
     if (!authenticatedUserId.equals(targetUserId)) {
-      throw new BusinessException(ErrorCode.FORBIDDEN);
+      throw new BusinessException(ErrorCode.USER_ACCESS_DENIED);
     }
 
     User user = userRepository.findById(targetUserId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
     boolean hasNickname = request.getNickname() != null;
     boolean hasPassword = request.getPassword() != null;
     boolean hasProfileImage = request.getProfileImageUrl() != null;
 
     if (!hasNickname && !hasPassword && !hasProfileImage) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST);
+      throw new BusinessException(ErrorCode.USER_PROFILE_UPDATE_EMPTY);
     }
 
     if (hasNickname && !request.getNickname().equals(user.getNickname())) {

@@ -28,10 +28,10 @@ public class AuthService {
   @Transactional
   public LoginResult login(LoginRequest request) {
     User user = userRepository.findByEmail(request.getEmail())
-        .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+        .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
 
     if (!request.getPassword().equals(user.getPassword())) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
     }
 
     String accessToken = jwtProvider.createAccessToken(
