@@ -2,13 +2,17 @@ package community.backend.domain.user.entity;
 
 import community.backend.domain.comment.entity.Comment;
 import community.backend.domain.post.entity.Post;
+import community.backend.domain.userprofileimage.entity.UserProfileImage;
 import community.backend.global.entity.BaseEntity;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.util.ArrayList;
@@ -46,14 +50,14 @@ public class User extends BaseEntity {
   @Column(name = "nickname", nullable = false, length = 20)
   private String nickname;
 
-  @Column(name = "profile_image_url", nullable = false)
-  private String profileImageUrl;
-
   @OneToMany(mappedBy = "user")
   private List<Post> posts = new ArrayList<>();
 
   @OneToMany(mappedBy = "user")
   private List<Comment> comments = new ArrayList<>();
+
+  @OneToOne(mappedBy = "user", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
+  private UserProfileImage userProfileImage;
 
   public void updateNickname(String nickname) {
     this.nickname = nickname;
@@ -63,7 +67,19 @@ public class User extends BaseEntity {
     this.password = password;
   }
 
+  public String getProfileImageUrl() {
+    return userProfileImage == null ? null : userProfileImage.getUserProfileImageUrl();
+  }
+
   public void updateProfileImageUrl(String profileImageUrl) {
-    this.profileImageUrl = profileImageUrl;
+    if (profileImageUrl == null) {
+      this.userProfileImage = null;
+      return;
+    }
+    if (this.userProfileImage == null) {
+      this.userProfileImage = UserProfileImage.of(this, profileImageUrl);
+      return;
+    }
+    this.userProfileImage.updateUserProfileImageUrl(profileImageUrl);
   }
 }

@@ -33,8 +33,8 @@ public class UserService {
         .email(request.getEmail())
         .password(request.getPassword())
         .nickname(request.getNickname())
-        .profileImageUrl(request.getProfileImageUrl())
         .build();
+    user.updateProfileImageUrl(request.getProfileImageUrl());
 
     userRepository.save(user);
   }

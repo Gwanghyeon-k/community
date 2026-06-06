@@ -35,15 +35,16 @@ public class PostService {
     }
     User user = userRepository.findById(userId)
         .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-    Post post = postRepository.save(Post.builder()
+    Post post = Post.builder()
         .user(user)
         .title(request.getTitle())
         .description(request.getDescription())
-        .postImageUrl(request.getPostImageUrl())
         .viewCount(0L)
         .likeCount(0L)
         .commentCount(0L)
-        .build());
+        .build();
+    post.updatePostImageUrl(request.getPostImageUrl());
+    post = postRepository.save(post);
     return new CreatePostResponse(post.getId(), post.getTitle());
   }
 

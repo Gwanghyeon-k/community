@@ -3,7 +3,6 @@ CREATE TABLE `users` (
                          `email` VARCHAR(100) NOT NULL COMMENT '이메일',
                          `password` VARCHAR(100) NOT NULL COMMENT '비밀번호',
                          `nickname` VARCHAR(20) NOT NULL COMMENT '사용자 닉네임',
-                         `profile_image_url` VARCHAR(255) NOT NULL COMMENT '프로필 이미지 url',
                          `created_at` DATETIME NOT NULL COMMENT '생성 일자',
                          `updated_at` DATETIME NOT NULL COMMENT '수정 일자',
                          PRIMARY KEY (`id`),
@@ -16,7 +15,6 @@ CREATE TABLE `posts` (
                          `user_id` BIGINT NOT NULL COMMENT '유저 id',
                          `title` VARCHAR(100) NOT NULL COMMENT '게시글 제목',
                          `description` TEXT NOT NULL COMMENT '게시글 내용',
-                         `post_image_url` VARCHAR(255) NULL COMMENT '게시글 이미지 url',
                          `view_count` BIGINT NOT NULL DEFAULT 0 COMMENT '총 조회 수',
                          `like_count` BIGINT NOT NULL DEFAULT 0 COMMENT '총 좋아요 수',
                          `comment_count` BIGINT NOT NULL DEFAULT 0 COMMENT '총 댓글 수',
@@ -24,6 +22,24 @@ CREATE TABLE `posts` (
                          `updated_at` DATETIME NOT NULL COMMENT '수정 일자',
                          PRIMARY KEY (`id`),
                          CONSTRAINT `fk_posts_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `user_profile_images` (
+                             `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '유저 프로필 이미지 id',
+                             `user_id` BIGINT NOT NULL COMMENT '유저 id',
+                             `user_profile_image_url` VARCHAR(255) NOT NULL COMMENT '유저 프로필 이미지 url',
+                             PRIMARY KEY (`id`),
+                             UNIQUE KEY `ux_user_profile_images_user_id` (`user_id`),
+                             CONSTRAINT `fk_user_profile_images_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `post_images` (
+                        `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '게시글 이미지 id',
+                        `post_id` BIGINT NOT NULL COMMENT '게시글 id',
+                        `post_image_url` VARCHAR(255) NOT NULL COMMENT '게시글 이미지 url',
+                        PRIMARY KEY (`id`),
+                        UNIQUE KEY `ux_post_images_post_id` (`post_id`),
+                        CONSTRAINT `fk_post_images_post_id` FOREIGN KEY (`post_id`) REFERENCES `posts` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `comments` (
