@@ -21,6 +21,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
   private static final String[] WHITE_LIST = {
       "/users",
       "/auths",
+      "/swagger-ui/**",
+      "/swagger-ui.html",
+      "/v3/api-docs",
+      "/v3/api-docs/**"
   };
 
   @Override

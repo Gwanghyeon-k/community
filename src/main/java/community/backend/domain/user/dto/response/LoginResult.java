@@ -1,5 +1,6 @@
 package community.backend.domain.user.dto.response;
 
+import community.backend.domain.user.entity.User;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -7,6 +8,17 @@ import lombok.Getter;
 @AllArgsConstructor
 public class LoginResult {
 
-  private LoginResponse response;
-  private String refreshToken;
+  private Long userId;
+  private String email;
+  private String nickname;
+  private String accessToken;
+
+  public static LoginResult of(User user, String accessToken) {
+    return new LoginResult(
+        user.getId(),
+        user.getEmail(),
+        user.getNickname(),
+        accessToken
+    );
+  }
 }

@@ -1,18 +1,19 @@
 package community.backend.domain.comment.repository;
 
-import community.backend.domain.comment.dto.response.CommentListItemResponse;
 import community.backend.domain.comment.entity.Comment;
-import java.util.List;
 import java.util.Optional;
+import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
-public interface CommentRepository {
-  boolean existsPostById(Long postId);
-  List<CommentListItemResponse> findByPostId(Long postId, Long lastCommentId, int size);
-  long save(Comment comment);
-  Optional<Comment> findById(Long commentId);
-  int updateContent(Long commentId, String content);
-  int delete(Long commentId);
-  int increasePostCommentCount(Long postId);
-  int decreasePostCommentCount(Long postId);
+public interface CommentRepository extends JpaRepository<Comment, Long> {
+
+  @EntityGraph(attributePaths = {"user", "post"})
+  @Query("select c from Comment c where c.id = :commentId and c.post.id = :postId")
+  Optional<Comment> findByIdAndPostId(
+      @Param("commentId") Long commentId,
+      @Param("postId") Long postId
+  );
 }
 

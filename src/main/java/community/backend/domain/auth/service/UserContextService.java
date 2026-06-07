@@ -15,7 +15,7 @@ public class UserContextService {
   public Long getUserId() {
     RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
     if (!(attributes instanceof ServletRequestAttributes servletAttributes)) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED);
     }
 
     Object userId = servletAttributes.getRequest().getAttribute(USER_ID);
@@ -26,6 +26,6 @@ public class UserContextService {
       return value.longValue();
     }
 
-    throw new BusinessException(ErrorCode.UNAUTHORIZED);
+    throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED);
   }
 }

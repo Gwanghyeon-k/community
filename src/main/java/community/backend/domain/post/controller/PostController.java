@@ -30,8 +30,7 @@ public class PostController {
   @GetMapping
   public ResponseEntity<ApiResponse<PostListResponse>> list(@RequestParam(defaultValue = "0") Long lastPostId,
       @RequestParam(defaultValue = "10") int size) {
-    Long cursor = lastPostId == 0 ? Long.MAX_VALUE : lastPostId;
-    return ApiResponse.onSuccess(SuccessCode.OK, postService.list(cursor, size));
+    return ApiResponse.onSuccess(SuccessCode.OK, postService.list(lastPostId, size));
   }
 
   @GetMapping("/{postId}")

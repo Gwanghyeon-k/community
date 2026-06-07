@@ -5,7 +5,12 @@ import community.backend.domain.comment.dto.request.UpdateCommentRequest;
 import community.backend.domain.comment.dto.response.CommentListItemResponse;
 import community.backend.domain.comment.dto.response.CommentListResponse;
 import community.backend.domain.comment.entity.Comment;
+import community.backend.domain.comment.repository.CommentQuerydslRepository;
 import community.backend.domain.comment.repository.CommentRepository;
+import community.backend.domain.post.entity.Post;
+import community.backend.domain.post.repository.PostRepository;
+import community.backend.domain.user.entity.User;
+import community.backend.domain.user.repository.UserRepository;
 import community.backend.global.apiPayload.code.ErrorCode;
 import community.backend.global.apiPayload.exception.BusinessException;
 import java.util.List;
@@ -18,18 +23,21 @@ import org.springframework.transaction.annotation.Transactional;
 public class CommentService {
 
   private final CommentRepository commentRepository;
+  private final CommentQuerydslRepository commentQuerydslRepository;
+  private final PostRepository postRepository;
+  private final UserRepository userRepository;
 
   @Transactional(readOnly = true)
   public CommentListResponse listByPost(Long postId, Long lastCommentId, int size) {
     if (size < 1) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST);
+      throw new BusinessException(ErrorCode.INVALID_COMMENT_PAGE_SIZE);
     }
-    if (!commentRepository.existsPostById(postId)) {
-      throw new BusinessException(ErrorCode.NOT_FOUND);
+    if (!postRepository.existsById(postId)) {
+      throw new BusinessException(ErrorCode.POST_NOT_FOUND);
     }
 
-    Long cursor = lastCommentId == 0 ? Long.MAX_VALUE : lastCommentId;
-    List<CommentListItemResponse> comments = commentRepository.findByPostId(postId, cursor, size);
+    Long cursor = (lastCommentId == null || lastCommentId == 0) ? null : lastCommentId;
+    List<CommentListItemResponse> comments = commentQuerydslRepository.findByPostId(postId, cursor, size);
 
     boolean isLast = comments.size() < size;
     Long nextCommentId = isLast || comments.isEmpty() ? null : comments.get(comments.size() - 1).getCommentId();
@@ -40,56 +48,47 @@ public class CommentService {
   @Transactional
   public void create(Long postId, Long userId, CreateCommentRequest request) {
     if (userId == null) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED);
     }
-    if (!commentRepository.existsPostById(postId)) {
-      throw new BusinessException(ErrorCode.NOT_FOUND);
-    }
+    Post post = postRepository.findById(postId)
+        .orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
+    User user = userRepository.findById(userId)
+        .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
     commentRepository.save(Comment.builder()
-        .postId(postId)
-        .userId(userId)
+        .post(post)
+        .user(user)
         .content(request.getComment())
         .build());
-    commentRepository.increasePostCommentCount(postId);
+    post.increaseCommentCount();
   }
 
   @Transactional
   public void update(Long postId, Long commentId, Long userId, UpdateCommentRequest request) {
     if (userId == null) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED);
     }
-    Comment comment = commentRepository.findById(commentId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
-    if (!comment.getPostId().equals(postId)) {
-      throw new BusinessException(ErrorCode.NOT_FOUND);
+    Comment comment = commentRepository.findByIdAndPostId(commentId, postId)
+        .orElseThrow(() -> new BusinessException(ErrorCode.COMMENT_NOT_FOUND));
+    if (!comment.isOwnedBy(userId)) {
+      throw new BusinessException(ErrorCode.COMMENT_ACCESS_DENIED);
     }
-    if (!comment.getUserId().equals(userId)) {
-      throw new BusinessException(ErrorCode.FORBIDDEN);
-    }
-    int updated = commentRepository.updateContent(commentId, request.getComment());
-    if (updated == 0) {
-      throw new BusinessException(ErrorCode.NOT_FOUND);
-    }
+    comment.updateContent(request.getComment());
   }
 
   @Transactional
   public void delete(Long postId, Long commentId, Long userId) {
     if (userId == null) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.AUTHENTICATION_REQUIRED);
     }
-    Comment comment = commentRepository.findById(commentId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
-    if (!comment.getPostId().equals(postId)) {
-      throw new BusinessException(ErrorCode.NOT_FOUND);
+    Comment comment = commentRepository.findByIdAndPostId(commentId, postId)
+        .orElseThrow(() -> new BusinessException(ErrorCode.COMMENT_NOT_FOUND));
+    if (!comment.isOwnedBy(userId)) {
+      throw new BusinessException(ErrorCode.COMMENT_ACCESS_DENIED);
     }
-    if (!comment.getUserId().equals(userId)) {
-      throw new BusinessException(ErrorCode.FORBIDDEN);
-    }
-    int deleted = commentRepository.delete(commentId);
-    if (deleted == 0) {
-      throw new BusinessException(ErrorCode.NOT_FOUND);
-    }
-    commentRepository.decreasePostCommentCount(comment.getPostId());
+    Post post = comment.getPost();
+    commentRepository.delete(comment);
+    post.decreaseCommentCount();
   }
 }
 
