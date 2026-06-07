@@ -5,7 +5,6 @@ import static community.backend.domain.user.entity.QUser.user;
 import static community.backend.domain.userprofileimage.entity.QUserProfileImage.userProfileImage;
 
 import com.querydsl.core.Tuple;
-import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import community.backend.domain.comment.dto.response.CommentListItemResponse;
 import java.time.LocalDateTime;
@@ -22,15 +21,6 @@ public class CommentQuerydslRepository {
   private final JPAQueryFactory queryFactory;
 
   public List<CommentListItemResponse> findByPostId(Long postId, Long lastCommentId, int size) {
-    LocalDateTime cursorCreatedAt = null;
-    if (lastCommentId != null) {
-      cursorCreatedAt = queryFactory
-          .select(comment.createdAt)
-          .from(comment)
-          .where(comment.id.eq(lastCommentId), comment.post.id.eq(postId))
-          .fetchOne();
-    }
-
     List<Tuple> rows = queryFactory
         .select(
             comment.id,
@@ -44,9 +34,9 @@ public class CommentQuerydslRepository {
         .leftJoin(user.userProfileImage, userProfileImage)
         .where(
             comment.post.id.eq(postId),
-            createdAtCursorCondition(lastCommentId, cursorCreatedAt)
+            lastCommentId == null ? null : comment.id.lt(lastCommentId)
         )
-        .orderBy(comment.createdAt.desc(), comment.id.desc())
+        .orderBy(comment.id.desc())
         .limit(size)
         .fetch();
 
@@ -59,14 +49,6 @@ public class CommentQuerydslRepository {
             formatDateTime(row.get(comment.updatedAt))
         ))
         .toList();
-  }
-
-  private static BooleanExpression createdAtCursorCondition(Long lastCommentId, LocalDateTime cursorCreatedAt) {
-    if (lastCommentId == null || cursorCreatedAt == null) {
-      return null;
-    }
-    return comment.createdAt.lt(cursorCreatedAt)
-        .or(comment.createdAt.eq(cursorCreatedAt).and(comment.id.lt(lastCommentId)));
   }
 
   private static String formatDateTime(LocalDateTime value) {
