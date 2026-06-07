@@ -5,6 +5,7 @@ import community.backend.domain.comment.dto.request.UpdateCommentRequest;
 import community.backend.domain.comment.dto.response.CommentListItemResponse;
 import community.backend.domain.comment.dto.response.CommentListResponse;
 import community.backend.domain.comment.entity.Comment;
+import community.backend.domain.comment.repository.CommentQuerydslRepository;
 import community.backend.domain.comment.repository.CommentRepository;
 import community.backend.domain.post.entity.Post;
 import community.backend.domain.post.repository.PostRepository;
@@ -22,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class CommentService {
 
   private final CommentRepository commentRepository;
+  private final CommentQuerydslRepository commentQuerydslRepository;
   private final PostRepository postRepository;
   private final UserRepository userRepository;
 
@@ -34,8 +36,8 @@ public class CommentService {
       throw new BusinessException(ErrorCode.POST_NOT_FOUND);
     }
 
-    Long cursor = lastCommentId == 0 ? Long.MAX_VALUE : lastCommentId;
-    List<CommentListItemResponse> comments = commentRepository.findByPostId(postId, cursor, size);
+    Long cursor = (lastCommentId == null || lastCommentId == 0) ? null : lastCommentId;
+    List<CommentListItemResponse> comments = commentQuerydslRepository.findByPostId(postId, cursor, size);
 
     boolean isLast = comments.size() < size;
     Long nextCommentId = isLast || comments.isEmpty() ? null : comments.get(comments.size() - 1).getCommentId();
