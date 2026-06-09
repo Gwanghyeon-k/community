@@ -7,6 +7,7 @@ import com.querydsl.core.types.dsl.NumberExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 @RequiredArgsConstructor
@@ -34,6 +35,7 @@ public class PostQuerydslRepository {
         .execute();
   }
 
+  @Transactional
   public long increaseViewCount(Long postId, long delta) {
     // 조회 수에 마이너스 연산이 실행되는 것을 막기 위함
     if(delta <= 0) return 0L;
