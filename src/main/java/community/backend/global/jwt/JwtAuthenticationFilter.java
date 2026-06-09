@@ -21,6 +21,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
   private static final String[] WHITE_LIST = {
       "/users",
       "/auths",
+      "/images/**",
+      "/image/**",
       "/swagger-ui/**",
       "/swagger-ui.html",
       "/v3/api-docs",
