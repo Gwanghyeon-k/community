@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.util.PatternMatchUtils;
@@ -21,6 +22,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
   private static final String[] WHITE_LIST = {
       "/users",
       "/auths",
+      "/images/**",
+      "/image/**",
       "/swagger-ui/**",
       "/swagger-ui.html",
       "/v3/api-docs",
@@ -29,7 +32,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
   @Override
   protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
-    return PatternMatchUtils.simpleMatch(WHITE_LIST, request.getRequestURI());
+    return HttpMethod.OPTIONS.matches(request.getMethod())
+        || PatternMatchUtils.simpleMatch(WHITE_LIST, request.getRequestURI());
   }
 
   @Override
