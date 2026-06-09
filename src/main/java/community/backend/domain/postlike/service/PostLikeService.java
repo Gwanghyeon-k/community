@@ -33,7 +33,7 @@ public class PostLikeService {
     User user = userRepository.findById(userId)
         .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
-    if (postLikeRepository.existsByPostIdAndUserId(postId, userId)) {
+    if (postLikeRepository.existsByPostIdAndUser_Id(postId, userId)) {
       throw new BusinessException(ErrorCode.POST_LIKE_ALREADY_EXISTS);
     }
 
@@ -57,7 +57,7 @@ public class PostLikeService {
     if (!postRepository.existsById(postId)) {
       throw new BusinessException(ErrorCode.POST_NOT_FOUND);
     }
-    PostLike postLike = postLikeRepository.findByPostIdAndUserId(postId, userId)
+    PostLike postLike = postLikeRepository.findByPostIdAndUser_Id(postId, userId)
         .orElseThrow(() -> new BusinessException(ErrorCode.POST_LIKE_NOT_FOUND));
 
     postLikeRepository.delete(postLike);

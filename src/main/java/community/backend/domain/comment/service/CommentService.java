@@ -8,6 +8,7 @@ import community.backend.domain.comment.entity.Comment;
 import community.backend.domain.comment.repository.CommentQuerydslRepository;
 import community.backend.domain.comment.repository.CommentRepository;
 import community.backend.domain.post.entity.Post;
+import community.backend.domain.post.repository.PostQuerydslRepository;
 import community.backend.domain.post.repository.PostRepository;
 import community.backend.domain.user.entity.User;
 import community.backend.domain.user.repository.UserRepository;
@@ -26,6 +27,8 @@ public class CommentService {
   private final CommentQuerydslRepository commentQuerydslRepository;
   private final PostRepository postRepository;
   private final UserRepository userRepository;
+  private final PostQuerydslRepository postQuerydslRepository;
+
 
   @Transactional(readOnly = true)
   public CommentListResponse listByPost(Long postId, Long lastCommentId, int size) {
@@ -60,7 +63,7 @@ public class CommentService {
         .user(user)
         .content(request.getComment())
         .build());
-    post.increaseCommentCount();
+    postQuerydslRepository.increaseCommentCount(postId);
   }
 
   @Transactional
@@ -86,9 +89,8 @@ public class CommentService {
     if (!comment.isOwnedBy(userId)) {
       throw new BusinessException(ErrorCode.COMMENT_ACCESS_DENIED);
     }
-    Post post = comment.getPost();
     commentRepository.delete(comment);
-    post.decreaseCommentCount();
+    postQuerydslRepository.decreaseCommentCount(postId);
   }
 }
 

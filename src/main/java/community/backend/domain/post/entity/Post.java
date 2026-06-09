@@ -81,22 +81,6 @@ public class Post extends BaseEntity {
   }
 
   public boolean isOwnedBy(Long userId) {
-    return this.user != null && this.user.getId().equals(userId);
-  }
-
-  public void increaseCommentCount() {
-    this.commentCount = this.commentCount + 1;
-  }
-
-  public void decreaseCommentCount() {
-    this.commentCount = this.commentCount > 0 ? this.commentCount - 1 : 0;
-  }
-
-  public void increaseLikeCount() {
-    this.likeCount = this.likeCount + 1;
-  }
-
-  public void decreaseLikeCount() {
-    this.likeCount = this.likeCount > 0 ? this.likeCount - 1 : 0;
+    return this.user == null || !this.user.getId().equals(userId);
   }
 }

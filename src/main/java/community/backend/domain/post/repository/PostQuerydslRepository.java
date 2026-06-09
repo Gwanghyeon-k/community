@@ -33,4 +33,32 @@ public class PostQuerydslRepository {
         .where(post.id.eq(postId))
         .execute();
   }
+
+  public long increaseViewCount(Long postId, long delta) {
+    // 조회 수에 마이너스 연산이 실행되는 것을 막기 위함
+    if(delta <= 0) return 0L;
+    return queryFactory
+        .update(post)
+        .set(post.viewCount, post.viewCount.add(delta))
+        .where(post.id.eq(postId))
+        .execute();
+  }
+
+  public long increaseCommentCount(Long postId) {
+    return queryFactory
+        .update(post)
+        .set(post.commentCount, post.commentCount.add(1L))
+        .where(post.id.eq(postId))
+        .execute();
+  }
+  public long decreaseCommentCount(Long postId) {
+    NumberExpression<Long> decreasedCommentCount = new CaseBuilder()
+        .when(post.commentCount.gt(0L)).then(post.commentCount.subtract(1L))
+        .otherwise(0L);
+    return queryFactory
+        .update(post)
+        .set(post.commentCount, decreasedCommentCount)
+        .where(post.id.eq(postId))
+        .execute();
+  }
 }
