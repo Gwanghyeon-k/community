@@ -6,7 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface PostLikeRepository extends JpaRepository<PostLike, Long> {
 
-  boolean existsByPostIdAndUser_Id(Long postId, Long userId);
+  boolean existsByPostIdAndUserId(Long postId, Long userId);
 
-  Optional<PostLike> findByPostIdAndUser_Id(Long postId, Long userId);
+  Optional<PostLike> findByPostIdAndUserId(Long postId, Long userId);
 }
