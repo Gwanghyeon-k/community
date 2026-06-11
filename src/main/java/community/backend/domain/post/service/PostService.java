@@ -27,6 +27,7 @@ public class PostService {
   private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
   private final PostRepository postRepository;
   private final UserRepository userRepository;
+  private final ViewCountBufferService viewCountBufferService;
 
   @Transactional
   public CreatePostResponse create(Long userId, CreatePostRequest request) {
@@ -73,11 +74,13 @@ public class PostService {
     return new PostListResponse(posts, posts.size() < size);
   }
 
-  @Transactional
-  public PostDetailResponse detail(Long postId) throws BusinessException {
+  @Transactional(readOnly = true)
+  public PostDetailResponse detail(Long postId) {
     Post post = postRepository.findById(postId)
         .orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
-    post.increaseViewCount();
+
+    viewCountBufferService.increment(postId);
+
     return new PostDetailResponse(
         post.getId(),
         post.getTitle(),
@@ -86,7 +89,7 @@ public class PostService {
         new PostDetailResponse.Author(post.getUser().getNickname(), post.getUser().getProfileImageUrl()),
         formatDateTime(post.getUpdatedAt()),
         post.getLikeCount(),
-        post.getViewCount()
+        post.getViewCount() + 1 // 즉시 응답에서만 증가 반영
     );
   }
 
@@ -97,7 +100,7 @@ public class PostService {
     }
     Post post = postRepository.findById(postId)
         .orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
-    if (!post.isOwnedBy(userId)) {
+    if (post.isOwnedBy(userId)) {
       throw new BusinessException(ErrorCode.POST_ACCESS_DENIED);
     }
     post.update(request.getTitle(), request.getDescription(), request.getPostImageUrl());
@@ -110,7 +113,7 @@ public class PostService {
     }
     Post post = postRepository.findById(postId)
         .orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
-    if (!post.isOwnedBy(userId)) {
+    if (post.isOwnedBy(userId)) {
       throw new BusinessException(ErrorCode.POST_ACCESS_DENIED);
     }
     postRepository.delete(post);
