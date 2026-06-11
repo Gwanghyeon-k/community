@@ -27,5 +27,7 @@ out/
 !**/src/test/**/out/
 
 .DS_Store
-.env
+.env.local
+.env.dev
+
 /image
