@@ -51,9 +51,11 @@ public class User extends BaseEntity {
   private String nickname;
 
   @OneToMany(mappedBy = "user")
+  @Builder.Default
   private List<Post> posts = new ArrayList<>();
 
   @OneToMany(mappedBy = "user")
+  @Builder.Default
   private List<Comment> comments = new ArrayList<>();
 
   @OneToOne(mappedBy = "user", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
