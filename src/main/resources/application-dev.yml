@@ -20,4 +20,4 @@ app:
   image:
     root-dir: image
     base-url: /image
-    public-base-url: http://43.200.6.2:8080
+    public-base-url: http://api.amumal-community.shop:8080
