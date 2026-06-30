@@ -22,4 +22,13 @@ public class BoardResponse {
         board.getDescription()
     );
   }
+
+  public static BoardResponse hot() {
+    return new BoardResponse(
+        0L,
+        BoardCategory.HOT,
+        "인기게시판",
+        "좋아요가 많은 인기 게시글 모음"
+    );
+  }
 }

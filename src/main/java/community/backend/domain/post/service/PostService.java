@@ -10,6 +10,7 @@ import community.backend.domain.post.dto.response.PostDetailResponse;
 import community.backend.domain.post.dto.response.PostListDetailResponse;
 import community.backend.domain.post.dto.response.PostListResponse;
 import community.backend.domain.post.entity.Post;
+import community.backend.domain.post.repository.PostQuerydslRepository;
 import community.backend.domain.post.repository.PostRepository;
 import community.backend.domain.user.entity.User;
 import community.backend.domain.user.repository.UserRepository;
@@ -31,6 +32,7 @@ public class PostService {
   private static final long BEST_LIKE_THRESHOLD = 100L;
   private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
   private final PostRepository postRepository;
+  private final PostQuerydslRepository postQuerydslRepository;
   private final UserRepository userRepository;
   private final BoardRepository boardRepository;
   private final ViewCountBufferService viewCountBufferService;
@@ -140,16 +142,19 @@ public class PostService {
   }
 
   private PostListResponse listByLikeThreshold(Long threshold, Long lastPostId, int size) {
-    Long cursor = normalizeCursor(lastPostId);
-    List<Post> entities = cursor == null
-        ? postRepository.findByLikeCountGreaterThanEqualOrderByIdDesc(threshold, PageRequest.of(0, size))
-        : postRepository.findByLikeCountGreaterThanEqualAndIdLessThanOrderByIdDesc(
-            threshold,
-            cursor,
-            PageRequest.of(0, size)
-        );
+    Long cursorId = normalizeCursor(lastPostId);
+    List<Post> entities = cursorId == null
+        ? postQuerydslRepository.findPopularPosts(threshold, size)
+        : listPopularPostsAfterCursor(threshold, cursorId, size);
 
     return toListResponse(entities, size);
+  }
+
+  private List<Post> listPopularPostsAfterCursor(Long threshold, Long cursorId, int size) {
+    Post cursor = postRepository.findById(cursorId)
+        .orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
+
+    return postQuerydslRepository.findPopularPostsAfterCursor(threshold, cursor, size);
   }
 
   private PostListResponse toListResponse(List<Post> entities, int size) {

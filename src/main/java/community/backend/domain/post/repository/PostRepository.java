@@ -20,11 +20,4 @@ public interface PostRepository extends JpaRepository<Post, Long> {
       Pageable pageable
   );
 
-  List<Post> findByLikeCountGreaterThanEqualOrderByIdDesc(Long likeCount, Pageable pageable);
-
-  List<Post> findByLikeCountGreaterThanEqualAndIdLessThanOrderByIdDesc(
-      Long likeCount,
-      Long cursorId,
-      Pageable pageable
-  );
 }
