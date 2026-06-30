@@ -1,5 +1,8 @@
 package community.backend.domain.post.service;
 
+import community.backend.domain.board.entity.Board;
+import community.backend.domain.board.entity.BoardCategory;
+import community.backend.domain.board.repository.BoardRepository;
 import community.backend.domain.post.dto.request.CreatePostRequest;
 import community.backend.domain.post.dto.request.UpdatePostRequest;
 import community.backend.domain.post.dto.response.CreatePostResponse;
@@ -24,9 +27,12 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class PostService {
 
+  private static final long HOT_LIKE_THRESHOLD = 10L;
+  private static final long BEST_LIKE_THRESHOLD = 100L;
   private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
   private final PostRepository postRepository;
   private final UserRepository userRepository;
+  private final BoardRepository boardRepository;
   private final ViewCountBufferService viewCountBufferService;
 
   @Transactional
@@ -36,7 +42,10 @@ public class PostService {
     }
     User user = userRepository.findById(userId)
         .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+    Board board = boardRepository.findByCategory(request.getBoardCategory())
+        .orElseThrow(() -> new BusinessException(ErrorCode.BOARD_NOT_FOUND));
     Post post = Post.builder()
+        .board(board)
         .user(user)
         .title(request.getTitle())
         .description(request.getDescription())
@@ -56,22 +65,26 @@ public class PostService {
         ? postRepository.findAllByOrderByIdDesc(PageRequest.of(0, size))
         : postRepository.findByIdLessThanOrderByIdDesc(cursor, PageRequest.of(0, size));
 
-    List<PostListDetailResponse> posts = entities.stream()
-        .map(post -> new PostListDetailResponse(
-            post.getId(),
-            post.getTitle(),
-            post.getUser().getNickname(),
-            post.getUser().getProfileImageUrl(),
-            formatDateTime(post.getUpdatedAt()),
-            post.getLikeCount(),
-            displayCount(post.getLikeCount()),
-            post.getCommentCount(),
-            post.getViewCount(),
-            displayCount(post.getViewCount())
-        ))
-        .toList();
+    return toListResponse(entities, size);
+  }
 
-    return new PostListResponse(posts, posts.size() < size);
+  @Transactional(readOnly = true)
+  public PostListResponse listByBoard(String boardCategory, Long lastPostId, int size) {
+    String normalizedCategory = boardCategory == null ? "" : boardCategory.toUpperCase();
+    if ("HOT".equals(normalizedCategory)) {
+      return listByLikeThreshold(HOT_LIKE_THRESHOLD, lastPostId, size);
+    }
+    if ("BEST".equals(normalizedCategory)) {
+      return listByLikeThreshold(BEST_LIKE_THRESHOLD, lastPostId, size);
+    }
+
+    BoardCategory category = parseBoardCategory(normalizedCategory);
+    Long cursor = normalizeCursor(lastPostId);
+    List<Post> entities = cursor == null
+        ? postRepository.findByBoard_CategoryOrderByIdDesc(category, PageRequest.of(0, size))
+        : postRepository.findByBoard_CategoryAndIdLessThanOrderByIdDesc(category, cursor, PageRequest.of(0, size));
+
+    return toListResponse(entities, size);
   }
 
   @Transactional(readOnly = true)
@@ -124,6 +137,50 @@ public class PostService {
       return null;
     }
     return value.format(FORMATTER);
+  }
+
+  private PostListResponse listByLikeThreshold(Long threshold, Long lastPostId, int size) {
+    Long cursor = normalizeCursor(lastPostId);
+    List<Post> entities = cursor == null
+        ? postRepository.findByLikeCountGreaterThanEqualOrderByIdDesc(threshold, PageRequest.of(0, size))
+        : postRepository.findByLikeCountGreaterThanEqualAndIdLessThanOrderByIdDesc(
+            threshold,
+            cursor,
+            PageRequest.of(0, size)
+        );
+
+    return toListResponse(entities, size);
+  }
+
+  private PostListResponse toListResponse(List<Post> entities, int size) {
+    List<PostListDetailResponse> posts = entities.stream()
+        .map(post -> new PostListDetailResponse(
+            post.getId(),
+            post.getTitle(),
+            post.getUser().getNickname(),
+            post.getUser().getProfileImageUrl(),
+            formatDateTime(post.getUpdatedAt()),
+            post.getLikeCount(),
+            displayCount(post.getLikeCount()),
+            post.getCommentCount(),
+            post.getViewCount(),
+            displayCount(post.getViewCount())
+        ))
+        .toList();
+
+    return new PostListResponse(posts, posts.size() < size);
+  }
+
+  private static Long normalizeCursor(Long lastPostId) {
+    return (lastPostId == null || lastPostId == 0) ? null : lastPostId;
+  }
+
+  private static BoardCategory parseBoardCategory(String boardCategory) {
+    try {
+      return BoardCategory.valueOf(boardCategory);
+    } catch (IllegalArgumentException e) {
+      throw new BusinessException(ErrorCode.BOARD_NOT_FOUND);
+    }
   }
 
   /***

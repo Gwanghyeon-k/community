@@ -11,20 +11,18 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class SwaggerConfig {
 
-  private static final String BEARER_SCHEME_NAME = "BearerAuth";
+  private static final String COOKIE_SCHEME_NAME = "AccessTokenCookieAuth";
 
   @Bean
   public OpenAPI openAPI() {
-    SecurityScheme bearerScheme = new SecurityScheme()
-        .name("Authorization")
-        .type(SecurityScheme.Type.HTTP)
-        .scheme("bearer")
-        .bearerFormat("JWT")
-        .in(SecurityScheme.In.HEADER);
+    SecurityScheme accessTokenCookieScheme = new SecurityScheme()
+        .name("accessToken")
+        .type(SecurityScheme.Type.APIKEY)
+        .in(SecurityScheme.In.COOKIE);
 
     return new OpenAPI()
         .info(new Info().title("Community API").version("v1"))
-        .components(new Components().addSecuritySchemes(BEARER_SCHEME_NAME, bearerScheme))
-        .addSecurityItem(new SecurityRequirement().addList(BEARER_SCHEME_NAME));
+        .components(new Components().addSecuritySchemes(COOKIE_SCHEME_NAME, accessTokenCookieScheme))
+        .addSecurityItem(new SecurityRequirement().addList(COOKIE_SCHEME_NAME));
   }
 }

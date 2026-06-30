@@ -10,8 +10,21 @@ CREATE TABLE `users` (
                          UNIQUE KEY `ux_users_nickname` (`nickname`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE `boards` (
+                          `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '게시판 id',
+                          `code` VARCHAR(30) NOT NULL COMMENT '게시판 코드',
+                          `name` VARCHAR(50) NOT NULL COMMENT '게시판 이름',
+                          `description` VARCHAR(255) NULL COMMENT '게시판 설명',
+                          `is_active` BOOLEAN NOT NULL DEFAULT TRUE COMMENT '활성화 여부',
+                          `created_at` DATETIME NOT NULL COMMENT '생성 일자',
+                          `updated_at` DATETIME NOT NULL COMMENT '수정 일자',
+                          PRIMARY KEY (`id`),
+                          UNIQUE KEY `ux_boards_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE `posts` (
                          `id` BigInt NOT NULL AUTO_INCREMENT COMMENT '게시글 id',
+                         `board_id` BIGINT NOT NULL COMMENT '게시판 id',
                          `user_id` BIGINT NOT NULL COMMENT '유저 id',
                          `title` VARCHAR(100) NOT NULL COMMENT '게시글 제목',
                          `description` TEXT NOT NULL COMMENT '게시글 내용',
@@ -21,6 +34,7 @@ CREATE TABLE `posts` (
                          `created_at` DATETIME NOT NULL COMMENT '생성 일자',
                          `updated_at` DATETIME NOT NULL COMMENT '수정 일자',
                          PRIMARY KEY (`id`),
+                         CONSTRAINT `fk_posts_board_id` FOREIGN KEY (`board_id`) REFERENCES `boards` (`id`),
                          CONSTRAINT `fk_posts_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

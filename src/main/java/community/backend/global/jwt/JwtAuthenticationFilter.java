@@ -1,5 +1,6 @@
 package community.backend.global.jwt;
 
+import community.backend.global.jwt.util.CookieUtil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -8,7 +9,6 @@ import java.io.IOException;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.util.PatternMatchUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -21,7 +21,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
   private static final String[] WHITE_LIST = {
       "/users",
-      "/auths",
       "/images/**",
       "/image/**",
       "/swagger-ui/**",
@@ -33,7 +32,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
   @Override
   protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
     return HttpMethod.OPTIONS.matches(request.getMethod())
+        || isAuthRequest(request)
         || PatternMatchUtils.simpleMatch(WHITE_LIST, request.getRequestURI());
+  }
+
+  private boolean isAuthRequest(HttpServletRequest request) {
+    return (HttpMethod.POST.matches(request.getMethod()) || HttpMethod.DELETE.matches(request.getMethod()))
+        && "/auths".equals(request.getRequestURI());
   }
 
   @Override
@@ -43,15 +48,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       @NonNull FilterChain filterChain
   ) throws ServletException, IOException {
 
-    String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
+    String token = resolveAccessToken(request);
 
     // 토큰이 없거나 형식이 틀리면 401
-    if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+    if (token == null) {
       response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
       return;
     }
-
-    String token = authHeader.substring(7);
 
     try {
       // 토큰 서명 + 만료 검증
@@ -70,5 +73,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     } catch (Exception exception) {
       response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
     }
+  }
+
+  private String resolveAccessToken(HttpServletRequest request) {
+    return CookieUtil.getCookieValue(request, CookieUtil.ACCESS_TOKEN_COOKIE_NAME);
   }
 }

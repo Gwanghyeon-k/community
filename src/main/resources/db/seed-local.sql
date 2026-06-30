@@ -7,6 +7,7 @@ DELETE FROM comments;
 DELETE FROM post_images;
 DELETE FROM user_profile_images;
 DELETE FROM posts;
+DELETE FROM boards;
 DELETE FROM users;
 
 -- users
@@ -20,6 +21,14 @@ INSERT INTO users (id, email, password, nickname, created_at, updated_at) VALUES
   (7, 'grace@example.com', 'Passw0rd!', 'grace', '2026-06-01 10:00:00', '2026-06-01 10:00:00'),
   (8, 'henry@example.com', 'Passw0rd!', 'henry', '2026-06-01 10:10:00', '2026-06-01 10:10:00');
 
+-- boards
+INSERT INTO boards (id, code, name, description, is_active, created_at, updated_at) VALUES
+  (1, 'FREE', '자유게시판', '자유롭게 이야기하는 게시판', true, '2026-06-01 09:00:00', '2026-06-01 09:00:00'),
+  (2, 'SECRET', '비밀게시판', '비밀 글을 작성하는 게시판', true, '2026-06-01 09:00:00', '2026-06-01 09:00:00'),
+  (3, 'GRADUATE', '졸업생게시판', '졸업생을 위한 게시판', true, '2026-06-01 09:00:00', '2026-06-01 09:00:00'),
+  (4, 'FRESHMAN', '새내기게시판', '새내기를 위한 게시판', true, '2026-06-01 09:00:00', '2026-06-01 09:00:00'),
+  (5, 'MARKET', '장터게시판', '중고책 등 거래 게시판', true, '2026-06-01 09:00:00', '2026-06-01 09:00:00');
+
 -- user profile images (1:1)
 INSERT INTO user_profile_images (id, user_id, user_profile_image_url) VALUES
   (1, 1, 'https://cdn.local/users/1/profile.jpg'),
@@ -32,15 +41,15 @@ INSERT INTO user_profile_images (id, user_id, user_profile_image_url) VALUES
   (8, 8, 'https://cdn.local/users/8/profile.jpg');
 
 -- posts
-INSERT INTO posts (id, user_id, title, description, view_count, like_count, comment_count, created_at, updated_at) VALUES
-  (1, 1, '첫 번째 게시글', 'alice가 작성한 게시글입니다.', 120, 2, 1, '2026-06-02 10:00:00', '2026-06-02 10:00:00'),
-  (2, 2, 'Spring Data JPA 후기', 'bob의 JPA 학습 기록입니다.', 87, 3, 1, '2026-06-02 11:00:00', '2026-06-02 11:00:00'),
-  (3, 3, 'QueryDSL 정리', 'carol이 정리한 QueryDSL 팁.', 45, 1, 1, '2026-06-02 12:00:00', '2026-06-02 12:00:00'),
-  (4, 1, '댓글 페이징 테스트', '커서 기반 페이징 검증용 게시글.', 64, 2, 20, '2026-06-03 09:00:00', '2026-06-03 09:00:00'),
-  (5, 4, '인증/인가 체크', 'dave가 올린 인증 관련 메모.', 32, 0, 1, '2026-06-03 10:00:00', '2026-06-03 10:00:00'),
-  (6, 6, '로컬 시드 테스트 A', 'frank가 작성한 테스트 게시글.', 21, 1, 1, '2026-06-03 11:00:00', '2026-06-03 11:00:00'),
-  (7, 7, '로컬 시드 테스트 B', 'grace가 작성한 테스트 게시글.', 17, 2, 0, '2026-06-03 11:30:00', '2026-06-03 11:30:00'),
-  (8, 8, '로컬 시드 테스트 C', 'henry가 작성한 테스트 게시글.', 13, 1, 0, '2026-06-03 12:00:00', '2026-06-03 12:00:00');
+INSERT INTO posts (id, board_id, user_id, title, description, view_count, like_count, comment_count, created_at, updated_at) VALUES
+  (1, 1, 1, '첫 번째 게시글', 'alice가 작성한 게시글입니다.', 120, 12, 1, '2026-06-02 10:00:00', '2026-06-02 10:00:00'),
+  (2, 1, 2, 'Spring Data JPA 후기', 'bob의 JPA 학습 기록입니다.', 87, 3, 1, '2026-06-02 11:00:00', '2026-06-02 11:00:00'),
+  (3, 1, 3, 'QueryDSL 정리', 'carol이 정리한 QueryDSL 팁.', 45, 1, 1, '2026-06-02 12:00:00', '2026-06-02 12:00:00'),
+  (4, 2, 1, '댓글 페이징 테스트', '커서 기반 페이징 검증용 게시글.', 64, 101, 20, '2026-06-03 09:00:00', '2026-06-03 09:00:00'),
+  (5, 3, 4, '인증/인가 체크', 'dave가 올린 인증 관련 메모.', 32, 0, 1, '2026-06-03 10:00:00', '2026-06-03 10:00:00'),
+  (6, 4, 6, '로컬 시드 테스트 A', 'frank가 작성한 테스트 게시글.', 21, 1, 1, '2026-06-03 11:00:00', '2026-06-03 11:00:00'),
+  (7, 5, 7, '로컬 시드 테스트 B', 'grace가 작성한 테스트 게시글.', 17, 2, 0, '2026-06-03 11:30:00', '2026-06-03 11:30:00'),
+  (8, 5, 8, '로컬 시드 테스트 C', 'henry가 작성한 테스트 게시글.', 13, 1, 0, '2026-06-03 12:00:00', '2026-06-03 12:00:00');
 
 -- post images (1:1)
 INSERT INTO post_images (id, post_id, post_image_url) VALUES
@@ -104,4 +113,3 @@ INSERT INTO auths (id, user_id, token, expires_at, created_at, updated_at) VALUE
   (1, 1, 'local-refresh-token-user-1', '2026-07-01 00:00:00', '2026-06-03 17:00:00', '2026-06-03 17:00:00'),
   (2, 2, 'local-refresh-token-user-2', '2026-07-01 00:00:00', '2026-06-03 17:00:00', '2026-06-03 17:00:00'),
   (3, 3, 'local-refresh-token-user-3', '2026-07-01 00:00:00', '2026-06-03 17:00:00', '2026-06-03 17:00:00');
-

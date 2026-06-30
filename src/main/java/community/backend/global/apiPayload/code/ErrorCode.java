@@ -25,6 +25,8 @@ public enum ErrorCode implements BaseStatus {
   POST_NOT_FOUND(HttpStatus.NOT_FOUND, "POST_404", "게시글을 찾을 수 없습니다."),
   POST_ACCESS_DENIED(HttpStatus.FORBIDDEN, "POST_403", "해당 게시글에 대한 권한이 없습니다."),
 
+  BOARD_NOT_FOUND(HttpStatus.NOT_FOUND, "BOARD_404", "게시판을 찾을 수 없습니다."),
+
   COMMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "COMMENT_404", "댓글을 찾을 수 없습니다."),
   COMMENT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "COMMENT_403", "해당 댓글에 대한 권한이 없습니다."),
   INVALID_COMMENT_PAGE_SIZE(HttpStatus.BAD_REQUEST, "COMMENT_400", "댓글 조회 size는 1 이상이어야 합니다."),
