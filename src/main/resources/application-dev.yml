@@ -10,6 +10,12 @@ spring:
   properties:
     hibernate:
       format_sql: true
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+      password: ${REDIS_PASSWORD}
+
 
 jwt:
   secret: ${JWT_SECRET}
@@ -21,3 +27,12 @@ app:
     root-dir: image
     base-url: /image
     public-base-url: http://api.amumal-community.shop:8080
+
+cloud:
+  aws:
+    credentials:
+      access-key: ${S3_ACCESS_KEY}
+      secret-key: ${S3_SECRET_KEY}
+    region: ${AWS_REGION}
+    s3:
+      bucket: ${AWS_S3_BUCKET}

@@ -1,5 +1,6 @@
 package community.backend.domain.post.entity;
 
+import community.backend.domain.board.entity.Board;
 import community.backend.domain.postimage.entity.PostImage;
 import community.backend.domain.user.entity.User;
 import community.backend.global.entity.BaseEntity;
@@ -53,6 +54,10 @@ public class Post extends BaseEntity {
 
   @OneToOne(mappedBy = "post", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
   private PostImage postImage;
+
+  @ManyToOne(fetch = FetchType.LAZY)
+  @JoinColumn(name = "board_id", nullable = false)
+  private Board board;
 
   public void increaseViewCount() {
     this.viewCount = this.viewCount + 1;

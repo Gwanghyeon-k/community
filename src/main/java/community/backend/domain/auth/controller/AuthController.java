@@ -1,11 +1,12 @@
 package community.backend.domain.auth.controller;
 
-import community.backend.domain.auth.service.UserContextService;
+import community.backend.domain.auth.service.AuthService;
 import community.backend.domain.user.dto.request.LoginRequest;
 import community.backend.domain.user.dto.response.LoginResult;
-import community.backend.domain.auth.service.AuthService;
 import community.backend.global.apiPayload.ApiResponse;
 import community.backend.global.apiPayload.code.SuccessCode;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -21,18 +22,22 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
   private final AuthService authService;
-  private final UserContextService userContextService;
 
   @PostMapping
-  public ResponseEntity<ApiResponse<LoginResult>> login(@Valid @RequestBody LoginRequest request) {
-    LoginResult response = authService.login(request);
+  public ResponseEntity<ApiResponse<LoginResult>> login(
+      @Valid @RequestBody LoginRequest request,
+      HttpServletResponse servletResponse
+  ) {
+    LoginResult response = authService.login(request, servletResponse);
     return ApiResponse.onSuccess(SuccessCode.OK, response);
   }
 
   @DeleteMapping
-  public ResponseEntity<ApiResponse<Void>> logout() {
-    Long userId = userContextService.getUserId();
-    authService.logout(userId);
+  public ResponseEntity<ApiResponse<Void>> logout(
+      HttpServletRequest servletRequest,
+      HttpServletResponse servletResponse
+  ) {
+    authService.logout(servletRequest, servletResponse);
     return ApiResponse.onSuccess(SuccessCode.OK);
   }
 }
