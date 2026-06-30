@@ -1,7 +1,5 @@
 package community.backend.domain.auth.service;
 
-import community.backend.domain.auth.entity.Auth;
-import community.backend.domain.auth.repository.AuthRepository;
 import community.backend.domain.user.dto.request.LoginRequest;
 import community.backend.domain.user.dto.response.LoginResult;
 import community.backend.domain.user.entity.User;
@@ -11,9 +9,11 @@ import community.backend.global.apiPayload.exception.BusinessException;
 import community.backend.global.jwt.JwtProperties;
 import community.backend.global.jwt.JwtProvider;
 import community.backend.global.jwt.util.CookieUtil;
+import community.backend.global.redis.RefreshTokenService;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import java.time.LocalDateTime;
+import java.time.Duration;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
@@ -27,7 +27,7 @@ public class AuthService {
   private final UserRepository userRepository;
   private final JwtProvider jwtProvider;
   private final JwtProperties jwtProperties;
-  private final AuthRepository authRepository;
+  private final RefreshTokenService refreshTokenService;
   private final Environment environment;
 
   @Transactional
@@ -44,19 +44,11 @@ public class AuthService {
     );
     String refreshToken = jwtProvider.createRefreshToken(user.getId());
 
-    LocalDateTime refreshExpiresAt = LocalDateTime.now()
-        .plusSeconds(jwtProperties.getRefreshTokenExpSeconds());
-    Auth auth = authRepository.findByUserId(user.getId())
-        .map(existing -> {
-          existing.updateToken(refreshToken, refreshExpiresAt);
-          return existing;
-        })
-        .orElseGet(() -> Auth.builder()
-            .user(user)
-            .token(refreshToken)
-            .expiresAt(refreshExpiresAt)
-            .build());
-    authRepository.save(auth);
+    refreshTokenService.save(
+        user.getId(),
+        refreshToken,
+        Duration.ofSeconds(jwtProperties.getRefreshTokenExpSeconds())
+    );
 
     addAuthCookies(servletResponse, accessToken, refreshToken);
     return LoginResult.of(user);
@@ -66,9 +58,23 @@ public class AuthService {
   public void logout(HttpServletRequest servletRequest, HttpServletResponse servletResponse) {
     String refreshToken = CookieUtil.getCookieValue(servletRequest, CookieUtil.REFRESH_TOKEN_COOKIE_NAME);
     if (refreshToken != null && !refreshToken.isBlank()) {
-      authRepository.deleteByToken(refreshToken);
+      deleteStoredRefreshToken(refreshToken);
     }
     deleteAuthCookies(servletResponse);
+  }
+
+  private void deleteStoredRefreshToken(String refreshToken) {
+    try {
+      if (!jwtProvider.isRefreshToken(refreshToken)) {
+        return;
+      }
+
+      Long userId = jwtProvider.getUserId(refreshToken);
+      refreshTokenService.findByUserId(userId)
+          .filter(refreshToken::equals)
+          .ifPresent(storedRefreshToken -> refreshTokenService.deleteByUserId(userId));
+    } catch (JwtException | IllegalArgumentException ignored) {
+    }
   }
 
   private void addAuthCookies(
