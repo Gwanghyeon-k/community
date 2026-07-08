@@ -8,3 +8,8 @@ out
 .DS_Store
 .env.*
 README.md
+docker-compose*.yml
+docker-compose*.yaml
+compose*.yml
+compose*.yaml
+infra

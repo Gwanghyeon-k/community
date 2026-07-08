@@ -5,6 +5,7 @@ import community.backend.domain.board.entity.BoardCategory;
 import community.backend.domain.board.repository.BoardRepository;
 import community.backend.domain.post.dto.request.CreatePostRequest;
 import community.backend.domain.post.dto.request.UpdatePostRequest;
+import community.backend.domain.post.dto.query.PostListQueryRow;
 import community.backend.domain.post.dto.response.CreatePostResponse;
 import community.backend.domain.post.dto.response.PostDetailResponse;
 import community.backend.domain.post.dto.response.PostListDetailResponse;
@@ -20,7 +21,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -62,12 +62,10 @@ public class PostService {
 
   @Transactional(readOnly = true)
   public PostListResponse list(Long lastPostId, int size) {
-    Long cursor = (lastPostId == null || lastPostId == 0) ? null : lastPostId;
-    List<Post> entities = cursor == null
-        ? postRepository.findAllByOrderByIdDesc(PageRequest.of(0, size))
-        : postRepository.findByIdLessThanOrderByIdDesc(cursor, PageRequest.of(0, size));
+    Long cursor = normalizeCursor(lastPostId);
+    List<PostListQueryRow> rows = postQuerydslRepository.findPostListRows(cursor, size);
 
-    return toListResponse(entities, size);
+    return toListResponse(rows, size);
   }
 
   @Transactional(readOnly = true)
@@ -82,11 +80,9 @@ public class PostService {
 
     BoardCategory category = parseBoardCategory(normalizedCategory);
     Long cursor = normalizeCursor(lastPostId);
-    List<Post> entities = cursor == null
-        ? postRepository.findByBoard_CategoryOrderByIdDesc(category, PageRequest.of(0, size))
-        : postRepository.findByBoard_CategoryAndIdLessThanOrderByIdDesc(category, cursor, PageRequest.of(0, size));
+    List<PostListQueryRow> rows = postQuerydslRepository.findPostListRowsByBoard(category, cursor, size);
 
-    return toListResponse(entities, size);
+    return toListResponse(rows, size);
   }
 
   @Transactional(readOnly = true)
@@ -143,33 +139,33 @@ public class PostService {
 
   private PostListResponse listByLikeThreshold(Long threshold, Long lastPostId, int size) {
     Long cursorId = normalizeCursor(lastPostId);
-    List<Post> entities = cursorId == null
-        ? postQuerydslRepository.findPopularPosts(threshold, size)
-        : listPopularPostsAfterCursor(threshold, cursorId, size);
+    List<PostListQueryRow> rows = cursorId == null
+        ? postQuerydslRepository.findPopularPostListRows(threshold, size)
+        : listPopularPostRowsAfterCursor(threshold, cursorId, size);
 
-    return toListResponse(entities, size);
+    return toListResponse(rows, size);
   }
 
-  private List<Post> listPopularPostsAfterCursor(Long threshold, Long cursorId, int size) {
+  private List<PostListQueryRow> listPopularPostRowsAfterCursor(Long threshold, Long cursorId, int size) {
     Post cursor = postRepository.findById(cursorId)
         .orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
 
-    return postQuerydslRepository.findPopularPostsAfterCursor(threshold, cursor, size);
+    return postQuerydslRepository.findPopularPostListRowsAfterCursor(threshold, cursor, size);
   }
 
-  private PostListResponse toListResponse(List<Post> entities, int size) {
-    List<PostListDetailResponse> posts = entities.stream()
-        .map(post -> new PostListDetailResponse(
-            post.getId(),
-            post.getTitle(),
-            post.getUser().getNickname(),
-            post.getUser().getProfileImageUrl(),
-            formatDateTime(post.getUpdatedAt()),
-            post.getLikeCount(),
-            displayCount(post.getLikeCount()),
-            post.getCommentCount(),
-            post.getViewCount(),
-            displayCount(post.getViewCount())
+  private PostListResponse toListResponse(List<PostListQueryRow> rows, int size) {
+    List<PostListDetailResponse> posts = rows.stream()
+        .map(row -> new PostListDetailResponse(
+            row.postId(),
+            row.title(),
+            row.nickname(),
+            row.profileImage(),
+            formatDateTime(row.updatedAt()),
+            row.likeCount(),
+            displayCount(row.likeCount()),
+            row.commentCount(),
+            row.viewCount(),
+            displayCount(row.viewCount())
         ))
         .toList();
 

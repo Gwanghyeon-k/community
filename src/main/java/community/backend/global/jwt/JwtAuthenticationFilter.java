@@ -26,14 +26,27 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       "/swagger-ui/**",
       "/swagger-ui.html",
       "/v3/api-docs",
-      "/v3/api-docs/**"
+      "/v3/api-docs/**",
+      "/actuator/**",
+  };
+
+  private static final String[] GET_WHITE_LIST = {
+      "/posts",
+      "/posts/*",
+      "/posts/*/comments",
   };
 
   @Override
   protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
     return HttpMethod.OPTIONS.matches(request.getMethod())
         || isAuthRequest(request)
+        || isReadOnlyPublicRequest(request)
         || PatternMatchUtils.simpleMatch(WHITE_LIST, request.getRequestURI());
+  }
+
+  private boolean isReadOnlyPublicRequest(HttpServletRequest request) {
+    return HttpMethod.GET.matches(request.getMethod())
+        && PatternMatchUtils.simpleMatch(GET_WHITE_LIST, request.getRequestURI());
   }
 
   private boolean isAuthRequest(HttpServletRequest request) {
