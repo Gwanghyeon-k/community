@@ -1,10 +1,17 @@
 package community.backend.domain.post.repository;
 
+import static community.backend.domain.board.entity.QBoard.board;
 import static community.backend.domain.post.entity.QPost.post;
+import static community.backend.domain.user.entity.QUser.user;
+import static community.backend.domain.userprofileimage.entity.QUserProfileImage.userProfileImage;
 
+import com.querydsl.core.types.Projections;
+import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.dsl.CaseBuilder;
 import com.querydsl.core.types.dsl.NumberExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
+import community.backend.domain.board.entity.BoardCategory;
+import community.backend.domain.post.dto.query.PostListQueryRow;
 import community.backend.domain.post.entity.Post;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +23,76 @@ import org.springframework.transaction.annotation.Transactional;
 public class PostQuerydslRepository {
 
   private final JPAQueryFactory queryFactory;
+
+  public List<PostListQueryRow> findPostListRows(Long cursorId, int size) {
+    return selectPostListRows()
+        .from(post)
+        .join(post.user, user)
+        .leftJoin(user.userProfileImage, userProfileImage)
+        .where(postIdLt(cursorId))
+        .orderBy(post.id.desc())
+        .limit(size)
+        .fetch();
+  }
+
+  public List<PostListQueryRow> findPostListRowsByBoard(BoardCategory category, Long cursorId, int size) {
+    return selectPostListRows()
+        .from(post)
+        .join(post.user, user)
+        .leftJoin(user.userProfileImage, userProfileImage)
+        .join(post.board, board)
+        .where(
+            board.category.eq(category),
+            postIdLt(cursorId)
+        )
+        .orderBy(post.id.desc())
+        .limit(size)
+        .fetch();
+  }
+
+  public List<PostListQueryRow> findPopularPostListRows(Long likeThreshold, int size) {
+    return selectPostListRows()
+        .from(post)
+        .join(post.user, user)
+        .leftJoin(user.userProfileImage, userProfileImage)
+        .where(post.likeCount.goe(likeThreshold))
+        .orderBy(post.likeCount.desc(), post.id.desc())
+        .limit(size)
+        .fetch();
+  }
+
+  public List<PostListQueryRow> findPopularPostListRowsAfterCursor(Long likeThreshold, Post cursor, int size) {
+    return selectPostListRows()
+        .from(post)
+        .join(post.user, user)
+        .leftJoin(user.userProfileImage, userProfileImage)
+        .where(
+            post.likeCount.goe(likeThreshold),
+            post.likeCount.lt(cursor.getLikeCount())
+                .or(post.likeCount.eq(cursor.getLikeCount()).and(post.id.lt(cursor.getId())))
+        )
+        .orderBy(post.likeCount.desc(), post.id.desc())
+        .limit(size)
+        .fetch();
+  }
+
+  private com.querydsl.jpa.JPQLQuery<PostListQueryRow> selectPostListRows() {
+    return queryFactory.select(Projections.constructor(
+        PostListQueryRow.class,
+        post.id,
+        post.title,
+        user.nickname,
+        userProfileImage.userProfileImageUrl,
+        post.updatedAt,
+        post.likeCount,
+        post.commentCount,
+        post.viewCount
+    ));
+  }
+
+  private BooleanExpression postIdLt(Long cursorId) {
+    return cursorId == null ? null : post.id.lt(cursorId);
+  }
 
   public void increaseLikeCount(Long postId) {
     queryFactory

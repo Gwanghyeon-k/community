@@ -9,5 +9,6 @@ spring:
 
 logging:
   level:
-    org.hibernate.SQL: debug
+    org.hibernate.SQL: warn
+    org.hibernate.orm.jdbc.bind: warn
 
