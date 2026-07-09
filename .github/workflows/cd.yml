@@ -1,17 +1,14 @@
 name: CD
 
-# CD는 CI가 main push에서 release image를 ECR에 push하고 v0.0.x Git tag를 만든 뒤에만 실행된다.
-# 이 workflow는 Docker build를 하지 않고, 이미 ECR에 있는 이미지를 private EC2에서 pull/run 한다.
+# main에 merge된 커밋만 release image로 만들고 production EC2에 배포한다.
 on:
-  workflow_run:
-    workflows:
-      - CI
-    types:
-      - completed
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       image_tag:
-        description: '배포할 ECR image tag. 예: v0.0.7'
+        description: '이미 ECR에 존재하는 image tag를 재배포한다. 예: v1.0.1'
         required: true
         type: string
 
@@ -43,50 +40,170 @@ env:
   DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
 
 jobs:
+  release:
+    name: Build and push release image
+    runs-on: ubuntu-latest
+
+    # release image build/push는 main push에서만 수행한다.
+    if: github.event_name == 'push'
+
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: read
+
+    outputs:
+      image_tag: ${{ steps.version.outputs.image_tag }}
+      image_uri: ${{ steps.metadata.outputs.image_uri }}
+
+    steps:
+      - name: Checkout with tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # main에 merge된 PR의 title/body에서 vMAJOR.MINOR.PATCH를 찾아 release image tag로 사용한다.
+      # 예: release: v1.0.1
+      - name: Resolve image tag from merged PR
+        id: version
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          pulls_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls"
+          pulls_json="$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${pulls_url}")"
+
+          release_text="$(jq -r '
+            [.[] | select(.base.ref == "main" and .merged_at != null)]
+            | sort_by(.number)
+            | last
+            | if . == null then "" else [.title, (.body // "")] | join("\n") end
+          ' <<< "${pulls_json}")"
+
+          image_tag="$(printf '%s\n' "${release_text}" | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
+
+          if [ -z "${image_tag}" ]; then
+            echo "Could not find release version like v1.0.1 in the merged PR title/body."
+            exit 1
+          fi
+
+          if git rev-parse -q --verify "refs/tags/${image_tag}" >/dev/null; then
+            echo "Git tag ${image_tag} already exists. Use a new release version."
+            exit 1
+          fi
+
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+          echo "Release image tag: ${image_tag}"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # release 이미지는 세 가지 태그로 push한다.
+      # - v0.0.x: release/prod 배포 기준 태그
+      # - sha-<commit>: 커밋과 이미지를 1:1로 추적하는 태그
+      # - latest: 운영 기준으로 쓰지 않는 보조 태그
+      #
+      # buildcache 태그는 실행 이미지가 아니라 다음 빌드 속도를 높이는 BuildKit cache 저장소다.
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.version.outputs.image_tag }}
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:sha-${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache,mode=max
+
+      # ECR push가 성공한 뒤 Git release tag를 남긴다.
+      - name: Push Git release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git tag "${{ steps.version.outputs.image_tag }}" "${{ github.sha }}"
+          git push origin "${{ steps.version.outputs.image_tag }}"
+
+      - name: Write image metadata
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}:${{ steps.version.outputs.image_tag }}"
+
+          {
+            echo "IMAGE_TAG=${{ steps.version.outputs.image_tag }}"
+            echo "IMAGE_URI=${image_uri}"
+            echo "GIT_SHA=${GITHUB_SHA}"
+            echo "ECR_REGISTRY=${ECR_REGISTRY}"
+            echo "ECR_REPOSITORY=${ECR_REPOSITORY}"
+            echo "AWS_REGION=${AWS_REGION}"
+          } > image-metadata.env
+
+          echo "image_uri=${image_uri}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload image metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-metadata
+          path: image-metadata.env
+          retention-days: 14
+
   deploy:
     name: Deploy release image to private EC2
     runs-on: ubuntu-latest
-    environment: production
+    needs:
+      - release
 
-    # 자동 실행은 main 브랜치 CI가 성공했을 때만 배포한다.
-    # 수동 실행은 workflow_dispatch 입력 image_tag로 배포한다.
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.head_branch == 'main'
-      )
+    # main push는 release job 결과를 배포한다.
+    # workflow_dispatch에서 image_tag를 입력한 경우 release job을 건너뛰고 해당 tag를 재배포한다.
+    if: always() && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch')
+
+    environment: production
 
     permissions:
       contents: read
       id-token: write
 
     steps:
-      # 자동 배포에서는 CI가 생성한 Git tag를 찾기 위해 tag 이력을 가져온다.
-      - name: Checkout with tags
-        if: github.event_name == 'workflow_run'
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 0
-
-      # workflow_dispatch에서는 사용자가 입력한 tag를 쓰고,
-      # workflow_run에서는 CI가 해당 commit에 붙인 v0.0.x tag를 찾는다.
       - name: Resolve image tag
         id: image
         shell: bash
         run: |
           set -euo pipefail
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
             image_tag="${{ inputs.image_tag }}"
           else
-            git fetch --tags --force
-            image_tag="$(git tag --points-at "${{ github.event.workflow_run.head_sha }}" --list 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -n 1)"
+            image_tag="${{ needs.release.outputs.image_tag }}"
           fi
 
           if [ -z "${image_tag}" ]; then
-            echo "No release tag found for this deployment target."
+            echo "No image tag resolved."
             exit 1
           fi
 
@@ -97,14 +214,12 @@ jobs:
 
           echo "Deploy image: ${image_uri}"
 
-      # SSM send-command를 호출하기 위해 AWS 권한을 획득한다.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # 배포 전에 ECR에 해당 태그가 실제로 존재하는지 확인한다.
       - name: Verify image exists in ECR
         shell: bash
         run: |
@@ -115,8 +230,6 @@ jobs:
             --image-ids imageTag="${{ steps.image.outputs.image_tag }}" \
             --region "${AWS_REGION}" >/dev/null
 
-      # EC2에 보낼 Shell script를 JSON 파일로 만든다.
-      # 대상 EC2는 public SSH가 아니라 SSM Agent를 통해 명령을 받는다.
       - name: Create SSM command payload
         shell: bash
         env:
@@ -197,8 +310,6 @@ jobs:
 
           jq -n --rawfile script deploy.sh '{commands: [$script]}' > ssm-parameters.json
 
-      # Service/Environment 태그가 붙은 모든 EC2에 같은 배포 명령을 보낸다.
-      # max-concurrency 50%는 2대 기준 1대씩 순차 배포되어 장애 범위를 줄인다.
       - name: Run deployment on tagged EC2 instances
         shell: bash
         run: |
