@@ -1,0 +1,138 @@
+name: CI
+
+# 브랜치 전략:
+# - feature/* -> develop PR: Gradle test를 수행하고, Dockerfile 계열 파일이 바뀌면 Docker build도 검증한다.
+# - develop -> main PR: develop에서 이미 test가 끝난 코드이므로 Docker image build 가능성만 검증한다.
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+    paths:
+      - 'src/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-for-develop:
+    name: Gradle test for develop PR
+    runs-on: ubuntu-latest
+
+    # develop으로 들어오는 PR에서 기본 테스트를 수행한다.
+    if: github.base_ref == 'develop'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Run tests
+        run: ./gradlew test --no-daemon
+
+      # Dockerfile 계열 변경은 Gradle test로 검증되지 않는다.
+      # 같은 develop PR job 안에서 변경 여부만 확인해 추가 runner 없이 Docker build 검증을 조건부 실행한다.
+      - name: Detect Docker build file changes
+        id: docker_changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch origin "${{ github.base_ref }}" --depth=1
+
+          changed_files="$(git diff --name-only "origin/${{ github.base_ref }}" HEAD)"
+
+          if printf '%s\n' "${changed_files}" | grep -Eq '^(Dockerfile|\.dockerignore)$'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.docker_changes.outputs.changed == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Check Dockerfile
+        if: steps.docker_changes.outputs.changed == 'true'
+        run: docker build --check .
+
+      - name: Build Docker image without push
+        if: steps.docker_changes.outputs.changed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: community-backend:develop-pr
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  docker-build-for-main:
+    name: Docker build check
+    runs-on: ubuntu-latest
+
+    # main으로 들어오는 release PR에서는 Dockerfile과 운영 이미지 빌드 가능성만 확인한다.
+    # ECR push는 main merge 후 CD에서만 수행한다.
+    if: github.base_ref == 'main'
+
+    steps:
+      # release PR은 title 또는 body에 vX.Y.Z 버전을 명시해야 한다.
+      # 예: release: v1.0.1
+      - name: Validate release version
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+
+          release_text="${PR_TITLE}"$'\n'"${PR_BODY:-}"
+          image_tag="$(printf '%s\n' "${release_text}" | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
+
+          if [ -z "${image_tag}" ]; then
+            echo "Release PR title or body must contain a version like v1.0.1."
+            exit 1
+          fi
+
+          echo "Release version: ${image_tag}"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Check Dockerfile
+        run: docker build --check .
+
+      - name: Build Docker image without push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: community-backend:release-pr
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
