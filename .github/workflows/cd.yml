@@ -101,6 +101,20 @@ jobs:
           echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
           echo "Release image tag: ${image_tag}"
 
+      - name: Resolve candidate image tag
+        if: github.event_name == 'push'
+        id: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          candidate_tag="candidate-${GITHUB_SHA}"
+          candidate_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}:${candidate_tag}"
+
+          echo "image_tag=${candidate_tag}" >> "$GITHUB_OUTPUT"
+          echo "image_uri=${candidate_uri}" >> "$GITHUB_OUTPUT"
+          echo "Candidate image: ${candidate_uri}"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -115,10 +129,8 @@ jobs:
         if: github.event_name == 'push'
         uses: docker/setup-buildx-action@v3
 
-      # release 이미지는 세 가지 태그로 push한다.
-      # - v0.0.x: release/prod 배포 기준 태그
-      # - sha-<commit>: 커밋과 이미지를 1:1로 추적하는 태그
-      # - latest: 운영 기준으로 쓰지 않는 보조 태그
+      # 먼저 candidate 태그로만 push한다.
+      # 실제 release 태그(vX.Y.Z/latest/sha-*)는 EC2 배포 성공 후에만 붙인다.
       #
       # buildcache 태그는 실행 이미지가 아니라 다음 빌드 속도를 높이는 BuildKit cache 저장소다.
       - name: Build and push Docker image
@@ -128,29 +140,13 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.version.outputs.image_tag }}
-            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:sha-${{ github.sha }}
-            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+            ${{ steps.candidate.outputs.image_uri }}
           cache-from: |
             type=gha
             type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache
           cache-to: |
             type=gha,mode=max
             type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache,mode=max
-
-      # ECR push가 성공한 뒤 main merge commit에 Git release tag를 남긴다.
-      # GITHUB_TOKEN으로 만든 tag push는 별도 workflow를 다시 트리거하지 않으므로 이 workflow 안에서 배포까지 수행한다.
-      - name: Push Git release tag
-        if: github.event_name == 'push'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git tag "${{ steps.version.outputs.image_tag }}" "${GITHUB_SHA}"
-          git push origin "${{ steps.version.outputs.image_tag }}"
 
       - name: Write image metadata
         if: github.event_name == 'push'
@@ -159,18 +155,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          image_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}:${{ steps.version.outputs.image_tag }}"
-
           {
             echo "IMAGE_TAG=${{ steps.version.outputs.image_tag }}"
-            echo "IMAGE_URI=${image_uri}"
+            echo "CANDIDATE_IMAGE_TAG=${{ steps.candidate.outputs.image_tag }}"
+            echo "CANDIDATE_IMAGE_URI=${{ steps.candidate.outputs.image_uri }}"
             echo "GIT_SHA=${GITHUB_SHA}"
             echo "ECR_REGISTRY=${ECR_REGISTRY}"
             echo "ECR_REPOSITORY=${ECR_REPOSITORY}"
             echo "AWS_REGION=${AWS_REGION}"
           } > image-metadata.env
-
-          echo "image_uri=${image_uri}" >> "$GITHUB_OUTPUT"
 
       - name: Upload image metadata
         if: github.event_name == 'push'
@@ -188,8 +181,10 @@ jobs:
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
             image_tag="${{ inputs.image_tag }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            image_tag="${{ steps.candidate.outputs.image_tag }}"
           else
-            image_tag="${{ steps.version.outputs.image_tag }}"
+            image_tag=""
           fi
 
           if [ -z "${image_tag}" ]; then
@@ -243,6 +238,7 @@ jobs:
             }' > ssm-parameters.json
 
       - name: Verify SSM target instances exist
+        id: targets
         shell: bash
         run: |
           set -euo pipefail
@@ -265,13 +261,15 @@ jobs:
           fi
 
           echo "SSM target instances: ${target_instance_ids}"
+          echo "instance_ids=${target_instance_ids}" >> "$GITHUB_OUTPUT"
 
       - name: Run deployment on tagged EC2 instances
+        id: ssm
         shell: bash
         run: |
           set -euo pipefail
 
-          aws ssm send-command \
+          command_id="$(aws ssm send-command \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy ${{ steps.image.outputs.image_tag }} to community backend" \
             --targets \
@@ -279,4 +277,105 @@ jobs:
               "Key=tag:Environment,Values=${SSM_TARGET_ENVIRONMENT}" \
             --max-concurrency "50%" \
             --max-errors "0" \
-            --parameters file://ssm-parameters.json
+            --parameters file://ssm-parameters.json \
+            --query "Command.CommandId" \
+            --output text)"
+
+          echo "command_id=${command_id}" >> "$GITHUB_OUTPUT"
+          echo "SSM command id: ${command_id}"
+
+      - name: Wait for EC2 deployment result
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          command_id="${{ steps.ssm.outputs.command_id }}"
+          instance_ids="${{ steps.targets.outputs.instance_ids }}"
+          failed=0
+
+          for instance_id in ${instance_ids}; do
+            echo "Waiting for deployment on ${instance_id}"
+
+            for attempt in $(seq 1 60); do
+              status="$(aws ssm get-command-invocation \
+                --region "${AWS_REGION}" \
+                --command-id "${command_id}" \
+                --instance-id "${instance_id}" \
+                --query "Status" \
+                --output text 2>/dev/null || true)"
+
+              case "${status}" in
+                Success|Failed|TimedOut|Cancelled|Cancelling)
+                  break
+                  ;;
+                *)
+                  sleep 5
+                  ;;
+              esac
+            done
+
+            stdout="$(aws ssm get-command-invocation \
+              --region "${AWS_REGION}" \
+              --command-id "${command_id}" \
+              --instance-id "${instance_id}" \
+              --query "StandardOutputContent" \
+              --output text 2>/dev/null || true)"
+
+            stderr="$(aws ssm get-command-invocation \
+              --region "${AWS_REGION}" \
+              --command-id "${command_id}" \
+              --instance-id "${instance_id}" \
+              --query "StandardErrorContent" \
+              --output text 2>/dev/null || true)"
+
+            echo "Deployment status for ${instance_id}: ${status}"
+            echo "----- stdout (${instance_id}) -----"
+            printf '%s\n' "${stdout}"
+            echo "----- stderr (${instance_id}) -----"
+            printf '%s\n' "${stderr}"
+
+            if [ "${status}" != "Success" ]; then
+              failed=1
+            fi
+          done
+
+          if [ "${failed}" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Promote candidate image to release tags
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          manifest="$(aws ecr batch-get-image \
+            --region "${AWS_REGION}" \
+            --repository-name "${ECR_REPOSITORY}" \
+            --image-ids imageTag="${{ steps.candidate.outputs.image_tag }}" \
+            --query "images[0].imageManifest" \
+            --output text)"
+
+          for tag in "${{ steps.version.outputs.image_tag }}" "sha-${GITHUB_SHA}" "latest"; do
+            aws ecr put-image \
+              --region "${AWS_REGION}" \
+              --repository-name "${ECR_REPOSITORY}" \
+              --image-tag "${tag}" \
+              --image-manifest "${manifest}" >/dev/null
+
+            echo "Promoted candidate image to ${tag}"
+          done
+
+      # ECR release 태그 승격까지 성공한 뒤 main merge commit에 Git release tag를 남긴다.
+      # GITHUB_TOKEN으로 만든 tag push는 별도 workflow를 다시 트리거하지 않는다.
+      - name: Push Git release tag
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git tag "${{ steps.version.outputs.image_tag }}" "${GITHUB_SHA}"
+          git push origin "${{ steps.version.outputs.image_tag }}"
