@@ -57,7 +57,6 @@ jobs:
 
     steps:
       - name: Checkout main commit
-        if: github.event_name == 'push'
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -223,77 +222,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          cat > deploy.sh <<'SCRIPT'
-          #!/usr/bin/env bash
-          set -euo pipefail
+          bash -n scripts/deploy.sh
 
-          # GitHub Actions에서 치환되어 들어오는 배포 변수다.
-          AWS_REGION="__AWS_REGION__"
-          ECR_REGISTRY="__ECR_REGISTRY__"
-          IMAGE_URI="__IMAGE_URI__"
-          IMAGE_TAG="__IMAGE_TAG__"
-          DEPLOY_DIR="__DEPLOY_DIR__"
-
-          # 단순 배포용 고정 컨테이너/네트워크 이름이다.
-          # 새 이미지를 pull한 뒤 기존 컨테이너를 교체한다.
-          NETWORK_NAME="community-backend"
-          CONTAINER_NAME="community-backend"
-
-          mkdir -p "${DEPLOY_DIR}"
-          cd "${DEPLOY_DIR}"
-
-          # EC2가 private subnet에 있어도 ECR VPC Endpoint 또는 NAT Gateway가 있으면 pull 가능하다.
-          aws ecr get-login-password --region "${AWS_REGION}" \
-            | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
-
-          docker network create "${NETWORK_NAME}" >/dev/null 2>&1 || true
-
-          docker pull "${IMAGE_URI}"
-
-          # 기존 컨테이너를 중지/삭제하고 새 이미지로 다시 띄운다.
-          # 첫 적용용 단순 배포이므로 이 순간 짧은 downtime이 생길 수 있다.
-          docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
-
-          # 애플리케이션 설정은 EC2의 ${DEPLOY_DIR}/.env에서 읽는다.
-          # 이 파일에는 DB/JWT/S3 같은 secret이 들어가므로 GitHub repository에는 올리지 않는다.
-          docker run -d \
-            --name "${CONTAINER_NAME}" \
-            --restart unless-stopped \
-            --network "${NETWORK_NAME}" \
-            --env-file "${DEPLOY_DIR}/.env" \
-            -p "8080:8080" \
-            -v community_backend_images:/backend/image \
-            "${IMAGE_URI}"
-
-          # 새 컨테이너가 정상 응답하는지 확인한다.
-          # Spring Boot Actuator가 있으므로 /actuator/health를 기준으로 삼는다.
-          for attempt in $(seq 1 30); do
-            if curl -fsS "http://127.0.0.1:8080/actuator/health" >/dev/null; then
-              break
-            fi
-
-            if [ "${attempt}" -eq 30 ]; then
-              echo "Health check failed for ${CONTAINER_NAME} (${IMAGE_TAG})"
-              docker logs --tail 200 "${CONTAINER_NAME}" || true
-              exit 1
-            fi
-
-            sleep 2
-          done
-
-          docker image prune -f >/dev/null 2>&1 || true
-
-          echo "Deployed ${IMAGE_URI} to ${CONTAINER_NAME}"
-          SCRIPT
-
-          # GitHub hosted runner는 Ubuntu지만, 로컬 검증도 쉽게 하려고 sed -i 대신 perl을 쓴다.
-          perl -0pi -e 's#__AWS_REGION__#$ENV{AWS_REGION}#g' deploy.sh
-          perl -0pi -e 's#__ECR_REGISTRY__#$ENV{ECR_REGISTRY}#g' deploy.sh
-          perl -0pi -e 's#__IMAGE_URI__#$ENV{IMAGE_URI}#g' deploy.sh
-          perl -0pi -e 's#__IMAGE_TAG__#$ENV{IMAGE_TAG}#g' deploy.sh
-          perl -0pi -e 's#__DEPLOY_DIR__#$ENV{DEPLOY_DIR}#g' deploy.sh
-
-          jq -n --rawfile script deploy.sh '{commands: [$script]}' > ssm-parameters.json
+          jq -n \
+            --arg aws_region "${AWS_REGION}" \
+            --arg ecr_registry "${ECR_REGISTRY}" \
+            --arg image_uri "${IMAGE_URI}" \
+            --arg image_tag "${IMAGE_TAG}" \
+            --arg deploy_dir "${DEPLOY_DIR}" \
+            --rawfile script scripts/deploy.sh \
+            '{
+              commands: [
+                "export AWS_REGION=" + ($aws_region | @sh) + "\n" +
+                "export ECR_REGISTRY=" + ($ecr_registry | @sh) + "\n" +
+                "export IMAGE_URI=" + ($image_uri | @sh) + "\n" +
+                "export IMAGE_TAG=" + ($image_tag | @sh) + "\n" +
+                "export DEPLOY_DIR=" + ($deploy_dir | @sh) + "\n" +
+                $script
+              ]
+            }' > ssm-parameters.json
 
       - name: Run deployment on tagged EC2 instances
         shell: bash
