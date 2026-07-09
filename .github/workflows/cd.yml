@@ -1,0 +1,215 @@
+name: CD
+
+# CD는 CI가 main push에서 release image를 ECR에 push하고 v0.0.x Git tag를 만든 뒤에만 실행된다.
+# 이 workflow는 Docker build를 하지 않고, 이미 ECR에 있는 이미지를 private EC2에서 pull/run 한다.
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: '배포할 ECR image tag. 예: v0.0.7'
+        required: true
+        type: string
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # GitHub repository variables에 등록한다.
+  # 예: ap-northeast-2
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+  # 예: 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com
+  ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+
+  # 예: community-backend
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+
+  # SSM 배포 대상 EC2 태그.
+  # 예: Service=community-backend, Environment=production
+  SSM_TARGET_SERVICE: ${{ vars.SSM_TARGET_SERVICE }}
+  SSM_TARGET_ENVIRONMENT: ${{ vars.SSM_TARGET_ENVIRONMENT }}
+
+  # EC2에서 .env 파일과 배포 상태를 관리할 기준 디렉터리.
+  # 예: /opt/community
+  DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+
+jobs:
+  deploy:
+    name: Deploy release image to private EC2
+    runs-on: ubuntu-latest
+    environment: production
+
+    # 자동 실행은 main 브랜치 CI가 성공했을 때만 배포한다.
+    # 수동 실행은 workflow_dispatch 입력 image_tag로 배포한다.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      # 자동 배포에서는 CI가 생성한 Git tag를 찾기 위해 tag 이력을 가져온다.
+      - name: Checkout with tags
+        if: github.event_name == 'workflow_run'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      # workflow_dispatch에서는 사용자가 입력한 tag를 쓰고,
+      # workflow_run에서는 CI가 해당 commit에 붙인 v0.0.x tag를 찾는다.
+      - name: Resolve image tag
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            image_tag="${{ inputs.image_tag }}"
+          else
+            git fetch --tags --force
+            image_tag="$(git tag --points-at "${{ github.event.workflow_run.head_sha }}" --list 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -n 1)"
+          fi
+
+          if [ -z "${image_tag}" ]; then
+            echo "No release tag found for this deployment target."
+            exit 1
+          fi
+
+          image_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}:${image_tag}"
+
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+          echo "image_uri=${image_uri}" >> "$GITHUB_OUTPUT"
+
+          echo "Deploy image: ${image_uri}"
+
+      # SSM send-command를 호출하기 위해 AWS 권한을 획득한다.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # 배포 전에 ECR에 해당 태그가 실제로 존재하는지 확인한다.
+      - name: Verify image exists in ECR
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          aws ecr describe-images \
+            --repository-name "${ECR_REPOSITORY}" \
+            --image-ids imageTag="${{ steps.image.outputs.image_tag }}" \
+            --region "${AWS_REGION}" >/dev/null
+
+      # EC2에 보낼 Shell script를 JSON 파일로 만든다.
+      # 대상 EC2는 public SSH가 아니라 SSM Agent를 통해 명령을 받는다.
+      - name: Create SSM command payload
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.image_tag }}
+          IMAGE_URI: ${{ steps.image.outputs.image_uri }}
+        run: |
+          set -euo pipefail
+
+          cat > deploy.sh <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          # GitHub Actions에서 치환되어 들어오는 배포 변수다.
+          AWS_REGION="__AWS_REGION__"
+          ECR_REGISTRY="__ECR_REGISTRY__"
+          IMAGE_URI="__IMAGE_URI__"
+          IMAGE_TAG="__IMAGE_TAG__"
+          DEPLOY_DIR="__DEPLOY_DIR__"
+
+          # 단순 배포용 고정 컨테이너/네트워크 이름이다.
+          # 새 이미지를 pull한 뒤 기존 컨테이너를 교체한다.
+          NETWORK_NAME="community-backend"
+          CONTAINER_NAME="community-backend"
+
+          mkdir -p "${DEPLOY_DIR}"
+          cd "${DEPLOY_DIR}"
+
+          # EC2가 private subnet에 있어도 ECR VPC Endpoint 또는 NAT Gateway가 있으면 pull 가능하다.
+          aws ecr get-login-password --region "${AWS_REGION}" \
+            | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+
+          docker network create "${NETWORK_NAME}" >/dev/null 2>&1 || true
+
+          docker pull "${IMAGE_URI}"
+
+          # 기존 컨테이너를 중지/삭제하고 새 이미지로 다시 띄운다.
+          # 첫 적용용 단순 배포이므로 이 순간 짧은 downtime이 생길 수 있다.
+          docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+
+          # 애플리케이션 설정은 EC2의 ${DEPLOY_DIR}/.env에서 읽는다.
+          # 이 파일에는 DB/JWT/S3 같은 secret이 들어가므로 GitHub repository에는 올리지 않는다.
+          docker run -d \
+            --name "${CONTAINER_NAME}" \
+            --restart unless-stopped \
+            --network "${NETWORK_NAME}" \
+            --env-file "${DEPLOY_DIR}/.env" \
+            -p "8080:8080" \
+            -v community_backend_images:/backend/image \
+            "${IMAGE_URI}"
+
+          # 새 컨테이너가 정상 응답하는지 확인한다.
+          # Spring Boot Actuator가 있으므로 /actuator/health를 기준으로 삼는다.
+          for attempt in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:8080/actuator/health" >/dev/null; then
+              break
+            fi
+
+            if [ "${attempt}" -eq 30 ]; then
+              echo "Health check failed for ${CONTAINER_NAME} (${IMAGE_TAG})"
+              docker logs --tail 200 "${CONTAINER_NAME}" || true
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          docker image prune -f >/dev/null 2>&1 || true
+
+          echo "Deployed ${IMAGE_URI} to ${CONTAINER_NAME}"
+          SCRIPT
+
+          # GitHub hosted runner는 Ubuntu지만, 로컬 검증도 쉽게 하려고 sed -i 대신 perl을 쓴다.
+          perl -0pi -e 's#__AWS_REGION__#$ENV{AWS_REGION}#g' deploy.sh
+          perl -0pi -e 's#__ECR_REGISTRY__#$ENV{ECR_REGISTRY}#g' deploy.sh
+          perl -0pi -e 's#__IMAGE_URI__#$ENV{IMAGE_URI}#g' deploy.sh
+          perl -0pi -e 's#__IMAGE_TAG__#$ENV{IMAGE_TAG}#g' deploy.sh
+          perl -0pi -e 's#__DEPLOY_DIR__#$ENV{DEPLOY_DIR}#g' deploy.sh
+
+          jq -n --rawfile script deploy.sh '{commands: [$script]}' > ssm-parameters.json
+
+      # Service/Environment 태그가 붙은 모든 EC2에 같은 배포 명령을 보낸다.
+      # max-concurrency 50%는 2대 기준 1대씩 순차 배포되어 장애 범위를 줄인다.
+      - name: Run deployment on tagged EC2 instances
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy ${{ steps.image.outputs.image_tag }} to community backend" \
+            --targets \
+              "Key=tag:Service,Values=${SSM_TARGET_SERVICE}" \
+              "Key=tag:Environment,Values=${SSM_TARGET_ENVIRONMENT}" \
+            --max-concurrency "50%" \
+            --max-errors "0" \
+            --parameters file://ssm-parameters.json

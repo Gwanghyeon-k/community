@@ -1,0 +1,219 @@
+name: CI
+
+# 브랜치 전략:
+# - feature/* -> develop PR: 테스트만 수행한다.
+# - develop -> main PR: 테스트 + Docker 이미지 빌드 검증을 수행한다. ECR push는 하지 않는다.
+# - main push: 테스트 통과 후 release 이미지 빌드, ECR push, v0.0.x Git tag 생성을 수행한다.
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - main
+
+# 기본 권한은 소스 checkout에 필요한 read만 둔다.
+# ECR push와 Git tag 생성 권한은 release-image job에만 별도로 부여한다.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # GitHub repository variables에 등록한다.
+  # 예: ap-northeast-2
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+  # 예: 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com
+  ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+
+  # 예: community-backend
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+
+jobs:
+  test:
+    name: Gradle test
+    runs-on: ubuntu-latest
+
+    steps:
+      # 소스코드를 runner로 가져온다.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 프로젝트와 Dockerfile이 Java 25를 사용하므로 CI도 같은 JDK로 맞춘다.
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      # Gradle 의존성/빌드 캐시를 활성화해 반복 CI 시간을 줄인다.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # 모든 PR과 main push에서 테스트를 실행한다.
+      # feature/* -> develop PR은 여기까지만 수행되어 빠르게 피드백한다.
+      - name: Run tests
+        run: ./gradlew test --no-daemon
+
+      # 실패한 테스트를 분석할 수 있도록 테스트 리포트를 보관한다.
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-test-report
+          path: build/reports/tests/test/
+          retention-days: 7
+
+  release-pr-docker-check:
+    name: Release PR Docker build check
+    runs-on: ubuntu-latest
+    needs:
+      - test
+
+    # develop -> main PR에서만 운영 이미지가 실제로 빌드 가능한지 검증한다.
+    # 이 단계는 ECR에 push하지 않는다.
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Dockerfile 정적 검사를 먼저 수행한다.
+      - name: Check Dockerfile
+        run: docker build --check .
+
+      # release 후보 PR에서만 실제 이미지 빌드를 검증한다.
+      - name: Build Docker image without push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: community-backend:release-pr
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release-image:
+    name: Build and push release image
+    runs-on: ubuntu-latest
+    needs:
+      - test
+
+    # main에 merge된 커밋만 release 이미지로 만든다.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: write
+      id-token: write
+
+    outputs:
+      image_tag: ${{ steps.version.outputs.image_tag }}
+      image_uri: ${{ steps.metadata.outputs.image_uri }}
+
+    steps:
+      # v0.0.x 자동 증가를 위해 전체 Git tag 이력을 가져온다.
+      - name: Checkout with tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 최신 vMAJOR.MINOR.PATCH 태그를 찾고 1 증가시킨다.
+      - name: Calculate next image tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          latest_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+
+          if [ -z "$latest_tag" ]; then
+            next_tag="v0.0.1"
+          else
+            version="${latest_tag#v}"
+            IFS='.' read -r major minor patch <<< "$version"
+            next_tag="v${major}.${minor}.$((patch + 1))"
+          fi
+
+          echo "image_tag=$next_tag" >> "$GITHUB_OUTPUT"
+          echo "Next release image tag: $next_tag"
+
+      # AWS 장기 access key를 쓰지 않고 GitHub OIDC로 배포 Role을 Assume한다.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # release 이미지는 세 가지 태그로 push한다.
+      # - v0.0.x: 사람이 읽고 rollback하기 쉬운 release 태그
+      # - sha-<commit>: 커밋과 이미지를 1:1로 추적하는 불변 태그
+      # - latest: 운영 기준으로 쓰지 않는 보조 태그
+      #
+      # buildcache 태그는 실행 이미지가 아니라 다음 빌드 속도를 높이는 BuildKit cache 저장소다.
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.version.outputs.image_tag }}
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:sha-${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache,mode=max
+
+      # CD workflow가 workflow_run으로 실행되면 이 Git tag를 기준으로 배포할 이미지를 찾는다.
+      - name: Push Git release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git tag "${{ steps.version.outputs.image_tag }}" "${{ github.sha }}"
+          git push origin "${{ steps.version.outputs.image_tag }}"
+
+      # 추적용 metadata를 artifact로 남긴다. CD는 Git tag를 기준으로 동작하지만,
+      # 장애 분석 시 어떤 이미지가 만들어졌는지 빠르게 확인할 수 있다.
+      - name: Write image metadata
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}:${{ steps.version.outputs.image_tag }}"
+
+          {
+            echo "IMAGE_TAG=${{ steps.version.outputs.image_tag }}"
+            echo "IMAGE_URI=${image_uri}"
+            echo "GIT_SHA=${GITHUB_SHA}"
+            echo "ECR_REGISTRY=${ECR_REGISTRY}"
+            echo "ECR_REPOSITORY=${ECR_REPOSITORY}"
+            echo "AWS_REGION=${AWS_REGION}"
+          } > image-metadata.env
+
+          echo "image_uri=${image_uri}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload image metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-metadata
+          path: image-metadata.env
+          retention-days: 14
