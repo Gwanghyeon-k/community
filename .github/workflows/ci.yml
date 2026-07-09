@@ -20,7 +20,6 @@ on:
       - 'gradle/**'
       - 'gradlew'
       - 'Dockerfile'
-      - '.dockerignore'
       - '.github/workflows/ci.yml'
 
 permissions:

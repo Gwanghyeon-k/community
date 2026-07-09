@@ -1,6 +1,6 @@
 name: CD
 
-# main에 merge된 커밋만 release image로 만들고 production EC2에 배포한다.
+# main에 merge되면 release PR title/body의 vX.Y.Z를 읽어 Git tag를 자동 생성하고 배포한다.
 on:
   push:
     branches:
@@ -57,13 +57,13 @@ jobs:
       image_uri: ${{ steps.metadata.outputs.image_uri }}
 
     steps:
-      - name: Checkout with tags
+      - name: Checkout main commit
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       # main에 merge된 PR의 title/body에서 vMAJOR.MINOR.PATCH를 찾아 release image tag로 사용한다.
-      # 예: release: v1.0.1
+      # 예: PR title "release: v1.0.1" -> Git tag v1.0.1 + ECR image tag v1.0.1
       - name: Resolve image tag from merged PR
         id: version
         shell: bash
@@ -88,8 +88,8 @@ jobs:
 
           image_tag="$(printf '%s\n' "${release_text}" | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
 
-          if [ -z "${image_tag}" ]; then
-            echo "Could not find release version like v1.0.1 in the merged PR title/body."
+          if [[ ! "${image_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Merged PR title or body must contain a release version like v1.0.1."
             exit 1
           fi
 
@@ -135,7 +135,8 @@ jobs:
             type=gha,mode=max
             type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache,mode=max
 
-      # ECR push가 성공한 뒤 Git release tag를 남긴다.
+      # ECR push가 성공한 뒤 main merge commit에 Git release tag를 남긴다.
+      # GITHUB_TOKEN으로 만든 tag push는 별도 workflow를 다시 트리거하지 않으므로 이 workflow 안에서 배포까지 수행한다.
       - name: Push Git release tag
         shell: bash
         run: |
@@ -144,7 +145,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git tag "${{ steps.version.outputs.image_tag }}" "${{ github.sha }}"
+          git tag "${{ steps.version.outputs.image_tag }}" "${GITHUB_SHA}"
           git push origin "${{ steps.version.outputs.image_tag }}"
 
       - name: Write image metadata
