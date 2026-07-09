@@ -242,6 +242,30 @@ jobs:
               ]
             }' > ssm-parameters.json
 
+      - name: Verify SSM target instances exist
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          target_instance_ids="$(aws ec2 describe-instances \
+            --region "${AWS_REGION}" \
+            --filters \
+              "Name=tag:Service,Values=${SSM_TARGET_SERVICE}" \
+              "Name=tag:Environment,Values=${SSM_TARGET_ENVIRONMENT}" \
+              "Name=instance-state-name,Values=running" \
+            --query "Reservations[].Instances[].InstanceId" \
+            --output text)"
+
+          if [ -z "${target_instance_ids}" ]; then
+            echo "No running EC2 instances found for SSM target tags."
+            echo "Required tags:"
+            echo "  Service=${SSM_TARGET_SERVICE}"
+            echo "  Environment=${SSM_TARGET_ENVIRONMENT}"
+            exit 1
+          fi
+
+          echo "SSM target instances: ${target_instance_ids}"
+
       - name: Run deployment on tagged EC2 instances
         shell: bash
         run: |
