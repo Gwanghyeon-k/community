@@ -1,7 +1,7 @@
 name: CI
 
 # 브랜치 전략:
-# - feature/* -> develop PR: Gradle test만 수행한다.
+# - feature/* -> develop PR: Gradle test를 수행하고, Dockerfile 계열 파일이 바뀌면 Docker build도 검증한다.
 # - develop -> main PR: develop에서 이미 test가 끝난 코드이므로 Docker image build 가능성만 검증한다.
 on:
   pull_request:
@@ -20,6 +20,7 @@ on:
       - 'gradle/**'
       - 'gradlew'
       - 'Dockerfile'
+      - '.dockerignore'
       - '.github/workflows/ci.yml'
 
 permissions:
@@ -39,19 +40,55 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Run tests
         run: ./gradlew test --no-daemon
+
+      # Dockerfile 계열 변경은 Gradle test로 검증되지 않는다.
+      # 같은 develop PR job 안에서 변경 여부만 확인해 추가 runner 없이 Docker build 검증을 조건부 실행한다.
+      - name: Detect Docker build file changes
+        id: docker_changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch origin "${{ github.base_ref }}" --depth=1
+
+          changed_files="$(git diff --name-only "origin/${{ github.base_ref }}" HEAD)"
+
+          if printf '%s\n' "${changed_files}" | grep -Eq '^(Dockerfile|\.dockerignore)$'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.docker_changes.outputs.changed == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Check Dockerfile
+        if: steps.docker_changes.outputs.changed == 'true'
+        run: docker build --check .
+
+      - name: Build Docker image without push
+        if: steps.docker_changes.outputs.changed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: community-backend:develop-pr
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   docker-build-for-main:
     name: Docker build check
@@ -83,7 +120,7 @@ jobs:
           echo "Release version: ${image_tag}"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
