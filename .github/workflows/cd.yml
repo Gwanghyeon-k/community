@@ -95,8 +95,14 @@ jobs:
           fi
 
           if git rev-parse -q --verify "refs/tags/${image_tag}" >/dev/null; then
-            echo "Git tag ${image_tag} already exists. Use a new release version."
-            exit 1
+            existing_tag_sha="$(git rev-list -n 1 "refs/tags/${image_tag}")"
+
+            if [ "${existing_tag_sha}" != "${GITHUB_SHA}" ]; then
+              echo "Git tag ${image_tag} already points to ${existing_tag_sha}. Use a new release version."
+              exit 1
+            fi
+
+            echo "Git tag ${image_tag} already points to this commit. Continuing redeploy."
           fi
 
           echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
@@ -291,6 +297,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          if git rev-parse -q --verify "refs/tags/${{ steps.version.outputs.image_tag }}" >/dev/null; then
+            echo "Git tag ${{ steps.version.outputs.image_tag }} already exists. Skipping tag push."
+            exit 0
+          fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
