@@ -11,15 +11,6 @@ on:
       - edited
       - labeled
       - unlabeled
-    paths:
-      - 'src/**'
-      - 'build.gradle'
-      - 'settings.gradle'
-      - 'gradle/**'
-      - 'gradlew'
-      - 'Dockerfile'
-      - '.dockerignore'
-      - '.github/workflows/ci.yml'
 
 permissions:
   contents: read
