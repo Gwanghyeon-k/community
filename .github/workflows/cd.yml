@@ -1,6 +1,6 @@
 name: CD
 
-# main에 merge되면 release PR title/body의 vX.Y.Z를 읽어 Git tag를 자동 생성하고 배포한다.
+# main에 merge되면 release PR title/body의 vX.Y.Z에 해당하는 ECR image를 배포한다.
 on:
   push:
     branches:
@@ -16,32 +16,24 @@ permissions:
   contents: read
 
 env:
-  # GitHub repository variables에 등록한다.
-  # 예: ap-northeast-2
   AWS_REGION: ${{ vars.AWS_REGION }}
 
-  # 예: 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com
   ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
 
-  # 예: community-backend
   ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
 
   # SSM 배포 대상 EC2 태그.
-  # 예: Service=community-backend, Environment=production
   SSM_TARGET_SERVICE: ${{ vars.SSM_TARGET_SERVICE }}
   SSM_TARGET_ENVIRONMENT: ${{ vars.SSM_TARGET_ENVIRONMENT }}
 
-  # EC2에서 .env 파일과 배포 상태를 관리할 기준 디렉터리.
-  # 예: /opt/community
   DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
 
 jobs:
   release-and-deploy:
-    name: Build, push, and deploy release image
+    name: Deploy release image
     runs-on: ubuntu-latest
 
-    # main push는 release image를 새로 만들고 배포한다.
-    # workflow_dispatch는 이미 ECR에 있는 image tag를 재배포한다.
+    # main push와 workflow_dispatch 모두 이미 ECR에 있는 image tag만 배포한다.
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
 
     environment: production
@@ -57,7 +49,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # main에 merge된 PR의 title/body에서 vMAJOR.MINOR.PATCH를 찾아 release image tag로 사용한다.
+      # main에 merge된 release 라벨 PR의 title/body에서 vMAJOR.MINOR.PATCH를 찾아 release image tag로 사용한다.
       # 예: PR title "release: v1.0.1" -> Git tag v1.0.1 + ECR image tag v1.0.1
       - name: Resolve image tag from merged PR
         if: github.event_name == 'push'
@@ -76,7 +68,14 @@ jobs:
             "${pulls_url}")"
 
           release_text="$(jq -r '
-            [.[] | select(.base.ref == "main" and .merged_at != null)]
+            [
+              .[]
+              | select(
+                  .base.ref == "main"
+                  and .merged_at != null
+                  and ([.labels[].name] | index("release"))
+                )
+            ]
             | sort_by(.number)
             | last
             | if . == null then "" else [.title, (.body // "")] | join("\n") end
@@ -84,8 +83,14 @@ jobs:
 
           image_tag="$(printf '%s\n' "${release_text}" | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
 
+          if [ -z "${release_text}" ]; then
+            echo "No merged release PR found for this push. Skipping deployment."
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [[ ! "${image_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Merged PR title or body must contain a release version like v1.0.1."
+            echo "Merged release PR title or body must contain a release version like v1.0.1."
             exit 1
           fi
 
@@ -95,81 +100,18 @@ jobs:
           fi
 
           echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+          echo "should_deploy=true" >> "$GITHUB_OUTPUT"
           echo "Release image tag: ${image_tag}"
 
-      - name: Resolve candidate image tag
-        if: github.event_name == 'push'
-        id: candidate
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          candidate_tag="candidate-${GITHUB_SHA}"
-          candidate_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}:${candidate_tag}"
-
-          echo "image_tag=${candidate_tag}" >> "$GITHUB_OUTPUT"
-          echo "image_uri=${candidate_uri}" >> "$GITHUB_OUTPUT"
-          echo "Candidate image: ${candidate_uri}"
-
       - name: Configure AWS credentials
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to Amazon ECR
-        if: github.event_name == 'push'
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Set up Docker Buildx
-        if: github.event_name == 'push'
-        uses: docker/setup-buildx-action@v3
-
-      # 먼저 candidate 태그로만 push한다.
-      # 실제 release 태그(vX.Y.Z/latest/sha-*)는 EC2 배포 성공 후에만 붙인다.
-      #
-      # buildcache 태그는 실행 이미지가 아니라 다음 빌드 속도를 높이는 BuildKit cache 저장소다.
-      - name: Build and push Docker image
-        if: github.event_name == 'push'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ steps.candidate.outputs.image_uri }}
-          cache-from: |
-            type=gha
-            type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache
-          cache-to: |
-            type=gha,mode=max
-            type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache,mode=max
-
-      - name: Write image metadata
-        if: github.event_name == 'push'
-        id: metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          {
-            echo "IMAGE_TAG=${{ steps.version.outputs.image_tag }}"
-            echo "CANDIDATE_IMAGE_TAG=${{ steps.candidate.outputs.image_tag }}"
-            echo "CANDIDATE_IMAGE_URI=${{ steps.candidate.outputs.image_uri }}"
-            echo "GIT_SHA=${GITHUB_SHA}"
-            echo "ECR_REGISTRY=${ECR_REGISTRY}"
-            echo "ECR_REPOSITORY=${ECR_REPOSITORY}"
-            echo "AWS_REGION=${AWS_REGION}"
-          } > image-metadata.env
-
-      - name: Upload image metadata
-        if: github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: image-metadata
-          path: image-metadata.env
-          retention-days: 14
-
       - name: Resolve image tag
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
         id: image
         shell: bash
         run: |
@@ -178,7 +120,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
             image_tag="${{ inputs.image_tag }}"
           elif [ "${{ github.event_name }}" = "push" ]; then
-            image_tag="${{ steps.candidate.outputs.image_tag }}"
+            image_tag="${{ steps.version.outputs.image_tag }}"
           else
             image_tag=""
           fi
@@ -196,6 +138,7 @@ jobs:
           echo "Deploy image: ${image_uri}"
 
       - name: Verify image exists in ECR
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -206,6 +149,7 @@ jobs:
             --region "${AWS_REGION}" >/dev/null
 
       - name: Create SSM command payload
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
         shell: bash
         env:
           IMAGE_TAG: ${{ steps.image.outputs.image_tag }}
@@ -234,6 +178,7 @@ jobs:
             }' > ssm-parameters.json
 
       - name: Verify SSM target instances exist
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
         id: targets
         shell: bash
         run: |
@@ -260,6 +205,7 @@ jobs:
           echo "instance_ids=${target_instance_ids}" >> "$GITHUB_OUTPUT"
 
       - name: Run deployment on tagged EC2 instances
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
         id: ssm
         shell: bash
         run: |
@@ -281,6 +227,7 @@ jobs:
           echo "SSM command id: ${command_id}"
 
       - name: Wait for EC2 deployment result
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -339,33 +286,8 @@ jobs:
             exit 1
           fi
 
-      - name: Promote candidate image to release tags
-        if: github.event_name == 'push'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          manifest="$(aws ecr batch-get-image \
-            --region "${AWS_REGION}" \
-            --repository-name "${ECR_REPOSITORY}" \
-            --image-ids imageTag="${{ steps.candidate.outputs.image_tag }}" \
-            --query "images[0].imageManifest" \
-            --output text)"
-
-          for tag in "${{ steps.version.outputs.image_tag }}" "sha-${GITHUB_SHA}" "latest"; do
-            aws ecr put-image \
-              --region "${AWS_REGION}" \
-              --repository-name "${ECR_REPOSITORY}" \
-              --image-tag "${tag}" \
-              --image-manifest "${manifest}" >/dev/null
-
-            echo "Promoted candidate image to ${tag}"
-          done
-
-      # ECR release 태그 승격까지 성공한 뒤 main merge commit에 Git release tag를 남긴다.
-      # GITHUB_TOKEN으로 만든 tag push는 별도 workflow를 다시 트리거하지 않는다.
       - name: Push Git release tag
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.version.outputs.should_deploy == 'true'
         shell: bash
         run: |
           set -euo pipefail
