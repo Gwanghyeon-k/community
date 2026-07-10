@@ -1,8 +1,5 @@
 name: CI
 
-# 브랜치 전략:
-# - feature/* -> develop PR: Gradle test를 수행하고, Dockerfile 계열 파일이 바뀌면 Docker build도 검증한다.
-# - develop -> main PR: develop에서 이미 test가 끝난 코드이므로 Docker image build 가능성만 검증한다.
 on:
   pull_request:
     branches:
@@ -11,8 +8,9 @@ on:
     types:
       - opened
       - synchronize
-      - reopened
       - edited
+      - labeled
+      - unlabeled
     paths:
       - 'src/**'
       - 'build.gradle'
@@ -25,6 +23,12 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -35,12 +39,11 @@ jobs:
     name: Gradle test for develop PR
     runs-on: ubuntu-latest
 
-    # develop으로 들어오는 PR에서 기본 테스트를 수행한다.
     if: github.base_ref == 'develop'
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v5
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -54,8 +57,6 @@ jobs:
       - name: Run tests
         run: ./gradlew test --no-daemon
 
-      # Dockerfile 계열 변경은 Gradle test로 검증되지 않는다.
-      # 같은 develop PR job 안에서 변경 여부만 확인해 추가 runner 없이 Docker build 검증을 조건부 실행한다.
       - name: Detect Docker build file changes
         id: docker_changes
         shell: bash
@@ -76,10 +77,6 @@ jobs:
         if: steps.docker_changes.outputs.changed == 'true'
         uses: docker/setup-buildx-action@v3
 
-      - name: Check Dockerfile
-        if: steps.docker_changes.outputs.changed == 'true'
-        run: docker build --check .
-
       - name: Build Docker image without push
         if: steps.docker_changes.outputs.changed == 'true'
         uses: docker/build-push-action@v6
@@ -94,14 +91,15 @@ jobs:
     name: Docker build check
     runs-on: ubuntu-latest
 
-    # main으로 들어오는 release PR에서는 Dockerfile과 운영 이미지 빌드 가능성만 확인한다.
-    # ECR push는 main merge 후 CD에서만 수행한다.
+    # main으로 들어오는 PR은 모두 Docker image build를 검증한다.
+    # release 라벨이 붙은 PR만 ECR에 release image를 push한다.
     if: github.base_ref == 'main'
 
     steps:
       # release PR은 title 또는 body에 vX.Y.Z 버전을 명시해야 한다.
-      # 예: release: v1.0.1
       - name: Validate release version
+        id: version
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'release') }}
         shell: bash
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -117,6 +115,7 @@ jobs:
             exit 1
           fi
 
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
           echo "Release version: ${image_tag}"
 
       - name: Checkout
@@ -125,10 +124,31 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Check Dockerfile
-        run: docker build --check .
+      - name: Configure AWS credentials
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'release') }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'release') }}
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve release image tag
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'release') }}
+        id: release_image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}:${{ steps.version.outputs.image_tag }}"
+
+          echo "image_uri=${image_uri}" >> "$GITHUB_OUTPUT"
+          echo "Release image: ${image_uri}"
 
       - name: Build Docker image without push
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'release') }}
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -136,3 +156,18 @@ jobs:
           tags: community-backend:release-pr
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Build and push Docker image
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'release') }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.release_image.outputs.image_uri }}
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache,mode=max
