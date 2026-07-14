@@ -26,8 +26,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-for-develop:
-    name: Gradle test for develop PR
+  verify-for-develop:
+    name: Gradle check and Docker build for develop PR
     runs-on: ubuntu-latest
 
     if: github.base_ref == 'develop'
@@ -45,31 +45,29 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Run tests
-        run: ./gradlew test --no-daemon
+      - name: Run checks
+        run: ./gradlew check --no-daemon
 
-      - name: Detect Docker build file changes
-        id: docker_changes
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          git fetch origin "${{ github.base_ref }}" --depth=1
-
-          changed_files="$(git diff --name-only "origin/${{ github.base_ref }}" HEAD)"
-
-          if printf '%s\n' "${changed_files}" | grep -Eq '^(Dockerfile|\.dockerignore)$'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Detect Docker build input changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            docker:
+              - 'Dockerfile'
+              - '.dockerignore'
+              - 'build.gradle'
+              - 'settings.gradle'
+              - 'gradle/**'
+              - 'gradlew'
+              - 'src/main/resources/**'
 
       - name: Set up Docker Buildx
-        if: steps.docker_changes.outputs.changed == 'true'
+        if: steps.changes.outputs.docker == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image without push
-        if: steps.docker_changes.outputs.changed == 'true'
+        if: steps.changes.outputs.docker == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -79,15 +77,27 @@ jobs:
           cache-to: type=gha,mode=max
 
   docker-build-for-main:
-    name: Docker build check
+    name: Gradle check and Docker build
     runs-on: ubuntu-latest
 
-    # main으로 들어오는 일반 PR은 Docker image build만 검증한다.
+    # main으로 들어오는 일반 PR은 Gradle check 후 Docker image build를 검증한다.
     if: github.base_ref == 'main' && !contains(github.event.pull_request.labels.*.name, 'release')
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Run checks
+        run: ./gradlew check --no-daemon
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -138,6 +148,18 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Run checks
+        run: ./gradlew check --no-daemon
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
