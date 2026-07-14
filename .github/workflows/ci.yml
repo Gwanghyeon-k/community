@@ -169,9 +169,5 @@ jobs:
           push: true
           tags: |
             ${{ steps.release_image.outputs.image_uri }}
-          cache-from: |
-            type=gha
-            type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache
-          cache-to: |
-            type=gha,mode=max
-            type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache,mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
