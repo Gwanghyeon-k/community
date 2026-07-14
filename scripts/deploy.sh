@@ -20,6 +20,7 @@ GREEN_HOST_PORT="${GREEN_HOST_PORT:-8082}"
 PUBLIC_HTTP_PORT="${PUBLIC_HTTP_PORT:-80}"
 HEALTH_PATH="${HEALTH_PATH:-/actuator/health}"
 SWITCH_GRACE_SECONDS="${SWITCH_GRACE_SECONDS:-10}"
+KEEP_BACKEND_IMAGE_COUNT="${KEEP_BACKEND_IMAGE_COUNT:-5}"
 
 mkdir -p "${DEPLOY_DIR}" "${NGINX_CONF_DIR}"
 cd "${DEPLOY_DIR}"
@@ -155,6 +156,44 @@ wait_for_health() {
   done
 }
 
+cleanup_backend_images() {
+  backend_repository="${ECR_REGISTRY}/${ECR_REPOSITORY}"
+
+  if [ "${KEEP_BACKEND_IMAGE_COUNT}" -le 0 ]; then
+    return
+  fi
+
+  image_rows="$(
+    docker image ls "${backend_repository}" --format '{{.Repository}}:{{.Tag}}' \
+      | awk '!/:<none>$/ { print }' \
+      | while IFS= read -r image_ref; do
+          docker image inspect --format '{{.Created}} {{.Id}} {{index .RepoTags 0}}' "${image_ref}" 2>/dev/null || true
+        done \
+      | sort -r
+  )"
+
+  if [ -z "${image_rows}" ]; then
+    return
+  fi
+
+  running_image_ids="$(docker ps -q | xargs -r docker inspect -f '{{.Image}}' | sort -u || true)"
+
+  kept_count=0
+  printf '%s\n' "${image_rows}" | while read -r _created image_id image_ref; do
+    kept_count=$((kept_count + 1))
+
+    if [ "${kept_count}" -le "${KEEP_BACKEND_IMAGE_COUNT}" ]; then
+      continue
+    fi
+
+    if printf '%s\n' "${running_image_ids}" | grep -Fxq "${image_id}"; then
+      continue
+    fi
+
+    docker rmi "${image_ref}" >/dev/null 2>&1 || true
+  done
+}
+
 aws ecr get-login-password --region "${AWS_REGION}" \
   | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
 
@@ -203,5 +242,6 @@ fi
 
 docker rm -f "${OLD_SINGLE_CONTAINER_NAME}" >/dev/null 2>&1 || true
 docker image prune -f >/dev/null 2>&1 || true
+cleanup_backend_images
 
 echo "Deployed ${IMAGE_URI} to ${next_container}"
