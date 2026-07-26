@@ -38,11 +38,11 @@ env:
   SSM_TARGET_SERVICE: ${{ vars.SSM_TARGET_SERVICE }}
   SSM_TARGET_ENVIRONMENT: ${{ vars.SSM_TARGET_ENVIRONMENT }}
 
-  # EC2 내부 배포 디렉터리입니다. deploy.sh가 이 위치에서 nginx 설정과 상태 파일을 관리합니다.
+  # EC2 내부 배포 디렉터리입니다. SSM 실행 중 Kubernetes manifest 임시 파일을 저장합니다.
   DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
 
 jobs:
-  # release image를 EC2에 배포하는 단일 job입니다.
+  # release image를 Kubernetes Deployment에 배포하는 단일 job입니다.
   release-and-deploy:
     name: Deploy release image
     runs-on: ubuntu-latest
@@ -198,8 +198,8 @@ jobs:
             --image-ids imageTag="${{ steps.image.outputs.image_tag }}" \
             --region "${AWS_REGION}" >/dev/null
 
-      # EC2에서 실행할 SSM command payload를 생성합니다.
-      # repo의 scripts/deploy.sh 파일 내용을 읽어서 AWS-RunShellScript commands에 포함합니다.
+      # Kubernetes master node에서 실행할 SSM command payload를 생성합니다.
+      # 분리된 k8s/backend/*.yaml 파일을 하나의 manifest로 합쳐 SSM payload에 포함합니다.
       - name: Create SSM command payload
         if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
         shell: bash
@@ -211,8 +211,59 @@ jobs:
         run: |
           set -euo pipefail
 
-          # EC2로 보내기 전에 deploy.sh 문법 오류를 GitHub Actions에서 먼저 잡습니다.
-          bash -n scripts/deploy.sh
+          combined_manifest="$(mktemp)"
+          for manifest in \
+            k8s/backend/namespace.yaml \
+            k8s/backend/configmap.yaml \
+            k8s/backend/deployment.yaml \
+            k8s/backend/service.yaml
+          do
+            cat "${manifest}" >> "${combined_manifest}"
+            printf '\n---\n' >> "${combined_manifest}"
+          done
+
+          # EC2에서 실행할 Kubernetes 배포 스크립트입니다.
+          # kubeconfig는 ubuntu 사용자 설정을 우선 사용하고, 없으면 kubeadm 기본 admin.conf를 사용합니다.
+          read -r -d '' K8S_DEPLOY_SCRIPT <<'SCRIPT' || true
+          set -euo pipefail
+
+          mkdir -p "${DEPLOY_DIR}"
+
+          if [ -z "${KUBECONFIG:-}" ]; then
+            if [ -f /home/ubuntu/.kube/config ]; then
+              export KUBECONFIG=/home/ubuntu/.kube/config
+            elif [ -f /etc/kubernetes/admin.conf ]; then
+              export KUBECONFIG=/etc/kubernetes/admin.conf
+            else
+              echo "No kubeconfig found. Expected /home/ubuntu/.kube/config or /etc/kubernetes/admin.conf."
+              exit 1
+            fi
+          fi
+
+          manifest_file="${DEPLOY_DIR}/community-backend.yaml"
+
+          kubectl version --client
+          kubectl get nodes -o wide
+
+          kubectl create namespace community --dry-run=client -o yaml | kubectl apply -f -
+
+          ecr_password="$(aws ecr get-login-password --region "${AWS_REGION}")"
+          kubectl create secret docker-registry ecr-registry-secret \
+            -n community \
+            --docker-server="${ECR_REGISTRY}" \
+            --docker-username=AWS \
+            --docker-password="${ecr_password}" \
+            --dry-run=client \
+            -o yaml | kubectl apply -f -
+
+          kubectl apply -f "${manifest_file}"
+          kubectl set image deployment/community-backend backend="${IMAGE_URI}" -n community
+          kubectl rollout status deployment/community-backend -n community --timeout=300s
+
+          kubectl get deployment community-backend -n community -o wide
+          kubectl get pod -n community -l app=community-backend -o wide
+          kubectl get service community-backend -n community -o wide
+          SCRIPT
 
           # jq로 SSM parameters JSON을 생성합니다.
           # @sh를 사용해 값들을 shell-safe하게 export 문으로 변환합니다.
@@ -222,7 +273,8 @@ jobs:
             --arg image_uri "${IMAGE_URI}" \
             --arg image_tag "${IMAGE_TAG}" \
             --arg deploy_dir "${DEPLOY_DIR}" \
-            --rawfile script scripts/deploy.sh \
+            --arg script "${K8S_DEPLOY_SCRIPT}" \
+            --rawfile manifest "${combined_manifest}" \
             '{
               commands: [
                 "export AWS_REGION=" + ($aws_region | @sh) + "\n" +
@@ -230,11 +282,14 @@ jobs:
                 "export IMAGE_URI=" + ($image_uri | @sh) + "\n" +
                 "export IMAGE_TAG=" + ($image_tag | @sh) + "\n" +
                 "export DEPLOY_DIR=" + ($deploy_dir | @sh) + "\n" +
+                "cat > " + ($deploy_dir | @sh) + "/community-backend.yaml <<'\''K8S_MANIFEST'\''\n" +
+                $manifest +
+                "\nK8S_MANIFEST\n" +
                 $script
               ]
             }' > ssm-parameters.json
 
-      # SSM 대상 EC2가 실제로 존재하는지 미리 확인합니다.
+      # SSM 대상 Kubernetes master EC2가 실제로 존재하는지 미리 확인합니다.
       # 의도: send-command가 대상 없이 성공/대기하는 상황을 피합니다.
       - name: Verify SSM target instances exist
         if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
@@ -244,6 +299,7 @@ jobs:
           set -euo pipefail
 
           # Service/Environment 태그가 일치하고 running 상태인 EC2만 배포 대상으로 봅니다.
+          # 이 태그는 Kubernetes master node를 가리켜야 합니다.
           target_instance_ids="$(aws ec2 describe-instances \
             --region "${AWS_REGION}" \
             --filters \
@@ -266,7 +322,7 @@ jobs:
           echo "SSM target instances: ${target_instance_ids}"
           echo "instance_ids=${target_instance_ids}" >> "$GITHUB_OUTPUT"
 
-      # 태그가 일치하는 EC2들에 SSM RunShellScript 명령을 보냅니다.
+      # 태그가 일치하는 Kubernetes master EC2에 SSM RunShellScript 명령을 보냅니다.
       - name: Run deployment on tagged EC2 instances
         if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
         id: ssm
@@ -274,13 +330,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          # max-concurrency 50%는 여러 EC2가 있을 때 절반씩 배포하게 합니다.
+          # master node 대상 배포이므로 일반적으로 대상은 1대입니다.
           # max-errors 0은 한 인스턴스라도 실패하면 전체 배포를 실패로 봅니다.
-          # 개선 가능점: 컨테이너 단위 blue/green이라면 max-concurrency를 100%로 둘 수도 있지만,
-          # 서버 리소스와 장애 반경을 고려하면 50%가 더 보수적입니다.
           command_id="$(aws ssm send-command \
             --document-name "AWS-RunShellScript" \
-            --comment "Deploy ${{ steps.image.outputs.image_tag }} to community backend" \
+            --comment "Rollout ${{ steps.image.outputs.image_tag }} to community backend deployment" \
             --targets \
               "Key=tag:Service,Values=${SSM_TARGET_SERVICE}" \
               "Key=tag:Environment,Values=${SSM_TARGET_ENVIRONMENT}" \
