@@ -1,10 +1,16 @@
+# GitHub Actions 화면에 표시되는 CI workflow 이름입니다.
 name: CI
 
+# PR 이벤트에서만 CI를 실행합니다.
+# 의도: develop/main으로 들어오는 변경만 검증해서 불필요한 CI 실행을 줄입니다.
 on:
   pull_request:
+    # develop PR은 개발 통합 전 검증, main PR은 release 전 검증 역할입니다.
     branches:
       - develop
       - main
+    # opened/synchronize는 일반 PR 검증에 필요합니다.
+    # edited/labeled/unlabeled는 release 라벨과 버전 문구 변경에도 CI가 다시 평가되게 합니다.
     types:
       - opened
       - synchronize
@@ -12,166 +18,274 @@ on:
       - labeled
       - unlabeled
 
+# workflow 기본 권한입니다.
+# contents: read는 checkout과 repository 파일 읽기에 필요합니다.
+# id-token: write는 release job에서 AWS OIDC 인증을 사용할 수 있게 합니다.
+# 개선 가능점: develop 전용 job에는 id-token이 필요 없으므로 job별 최소 권한으로 더 좁힐 수 있습니다.
 permissions:
   contents: read
   id-token: write
 
+# 여러 job에서 공통으로 사용하는 AWS/ECR 값입니다.
+# GitHub Repository Variables에 값이 있어야 합니다.
 env:
+  # AWS 리전입니다. ECR 로그인과 이미지 push 대상 리전을 맞춥니다.
   AWS_REGION: ${{ vars.AWS_REGION }}
+  # ECR registry URI입니다. 예: 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com
   ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+  # ECR repository 이름입니다. 예: amumal-community-backend
   ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
 
+# 같은 PR ref에 새 CI가 시작되면 이전 실행을 취소합니다.
+# 의도: PR에 커밋을 연속 push할 때 오래된 CI가 runner 시간을 낭비하지 않게 합니다.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test-for-develop:
-    name: Gradle test for develop PR
+  # develop으로 들어오는 PR 검증입니다.
+  # 의도: 코드 검증은 항상 수행하고, Docker build는 빌드 입력 파일 변경 시에만 수행합니다.
+  verify-for-develop:
+    # Actions UI에 표시되는 job 이름입니다.
+    name: Gradle check and Docker build for develop PR
+    # GitHub-hosted Ubuntu runner에서 실행합니다.
     runs-on: ubuntu-latest
 
+    # develop 대상 PR에서만 이 job을 실행합니다.
     if: github.base_ref == 'develop'
 
     steps:
+      # PR 소스코드를 runner에 내려받습니다.
+      # 개선 가능점: 사용하는 action major version이 실제 존재하는지 주기적으로 확인해야 합니다.
       - name: Checkout
         uses: actions/checkout@v5
 
+      # Gradle check 실행을 위해 JDK 25를 설치합니다.
+      # Dockerfile도 Temurin 25를 쓰므로 CI JVM 버전을 배포 이미지와 맞춥니다.
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          # Temurin은 Eclipse Adoptium JDK 배포판입니다.
+          distribution: temurin
+          # build.gradle의 toolchain Java 25와 일치해야 합니다.
+          java-version: '25'
+
+      # Gradle wrapper/dependency/build cache를 GitHub Actions cache와 연결합니다.
+      # 의도: 매 CI마다 Gradle dependency를 다시 받는 비용을 줄입니다.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # 코드 검증 단계입니다.
+      # check는 test를 포함하고, 나중에 checkstyle/spotless 같은 검증이 붙어도 함께 실행됩니다.
+      # 의도: Dockerfile에서는 bootJar -x test를 하므로 테스트/검증은 CI Gradle 단계가 담당합니다.
+      - name: Run checks
+        run: ./gradlew check --no-daemon
+
+      # develop PR에서 Docker build가 필요한 변경인지 판별합니다.
+      # 의도: 일반 Java 소스 변경은 check만 돌리고, Docker/Gradle/resource 변경 때만 이미지 빌드를 검증합니다.
+      # 개선 가능점: application 설정 외 정적 파일까지 이미지 검증이 필요하면 src/main/static 등도 추가할 수 있습니다.
+      - name: Detect Docker build input changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            docker:
+              # Dockerfile 자체가 바뀌면 이미지 빌드 검증이 필요합니다.
+              - 'Dockerfile'
+              # Docker build context 제외 규칙이 바뀌면 이미지 산출물이 달라질 수 있습니다.
+              - '.dockerignore'
+              # Gradle 의존성/플러그인/태스크 변경은 Dockerfile 내부 bootJar에 영향을 줍니다.
+              - 'build.gradle'
+              # 프로젝트 이름/멀티모듈 구조 변경은 Gradle 빌드 입력입니다.
+              - 'settings.gradle'
+              # Gradle wrapper jar/properties 변경은 Dockerfile 내부 Gradle 실행에 영향을 줍니다.
+              - 'gradle/**'
+              # wrapper 실행 파일 변경도 Docker build 입력입니다.
+              - 'gradlew'
+              # application.yml, SQL seed 등 리소스는 bootJar와 이미지 내용에 포함됩니다.
+              - 'src/main/resources/**'
+
+      # 조건부 Docker build를 위해 Buildx를 준비합니다.
+      # Docker build 입력 파일이 바뀌지 않았으면 이 step도 생략합니다.
+      - name: Set up Docker Buildx
+        if: steps.changes.outputs.docker == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      # develop PR에서는 이미지를 registry에 올리지 않고 빌드 가능 여부만 확인합니다.
+      # 의도: Dockerfile 내부 bootJar, layertools extract, runtime image 구성이 깨졌는지 검증합니다.
+      - name: Build Docker image without push
+        if: steps.changes.outputs.docker == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          # repository root를 Docker build context로 사용합니다.
+          context: .
+          # PR 검증이므로 registry push는 하지 않습니다.
+          push: false
+          # 로컬 빌드 식별용 태그입니다. 외부에 push되지 않습니다.
+          tags: community-backend:develop-pr
+          # 이전 Docker build cache를 GitHub Actions cache에서 가져옵니다.
+          cache-from: type=gha
+          # 이번 build에서 생긴 cache를 GitHub Actions cache에 저장합니다.
+          cache-to: type=gha,mode=max
+
+  # main으로 들어오는 일반 PR 검증입니다.
+  # 의도: release 라벨이 없는 main PR은 ECR push 없이 check + Docker build까지만 수행합니다.
+  docker-build-for-main:
+    name: Gradle check and Docker build
+    runs-on: ubuntu-latest
+
+    # main 대상이면서 release 라벨이 없는 PR만 실행합니다.
+    # release 라벨 PR은 아래 docker-push-for-release job이 담당합니다.
+    if: github.base_ref == 'main' && !contains(github.event.pull_request.labels.*.name, 'release')
+
+    steps:
+      # main PR의 소스코드를 가져옵니다.
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # main PR에서도 Docker build 전에 테스트/검증을 수행하기 위해 JDK를 설치합니다.
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
 
+      # Gradle cache를 활성화해 check 시간을 줄입니다.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Run tests
-        run: ./gradlew test --no-daemon
+      # main 반영 전 테스트/검증을 수행합니다.
+      # Dockerfile의 bootJar -x test가 테스트를 제외하므로 이 단계가 필요합니다.
+      - name: Run checks
+        run: ./gradlew check --no-daemon
 
-      - name: Detect Docker build file changes
-        id: docker_changes
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          git fetch origin "${{ github.base_ref }}" --depth=1
-
-          changed_files="$(git diff --name-only "origin/${{ github.base_ref }}" HEAD)"
-
-          if printf '%s\n' "${changed_files}" | grep -Eq '^(Dockerfile|\.dockerignore)$'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Set up Docker Buildx
-        if: steps.docker_changes.outputs.changed == 'true'
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image without push
-        if: steps.docker_changes.outputs.changed == 'true'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          tags: community-backend:develop-pr
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  docker-build-for-main:
-    name: Docker build check
-    runs-on: ubuntu-latest
-
-    # main으로 들어오는 일반 PR은 Docker image build만 검증한다.
-    if: github.base_ref == 'main' && !contains(github.event.pull_request.labels.*.name, 'release')
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
+      # main PR은 항상 Docker 이미지 빌드까지 검증합니다.
+      # 의도: main에 들어갈 코드는 배포 이미지 생성 가능성이 보장되어야 합니다.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # release가 아닌 main PR이므로 이미지는 push하지 않습니다.
       - name: Build Docker image without push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: false
+          # release-pr이라는 태그명은 로컬 검증용입니다.
+          # 개선 가능점: main-pr처럼 의미가 더 정확한 태그명으로 바꿀 수 있습니다.
           tags: community-backend:release-pr
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # release 라벨이 붙은 main PR에서 실제 release image를 ECR에 push합니다.
   docker-push-for-release:
     name: Docker build and push release image
     runs-on: ubuntu-latest
 
-    # release 라벨이 붙은 main PR만 ECR에 release image를 push한다.
+    # main 대상 PR 중 release 라벨이 붙은 경우만 실행합니다.
     if: github.base_ref == 'main' && contains(github.event.pull_request.labels.*.name, 'release')
 
+    # production environment를 사용합니다.
+    # 의도: GitHub Environment 보호 규칙/승인/secrets 분리를 적용할 수 있습니다.
     environment: production
 
+    # 이 job에서 필요한 권한을 명시합니다.
+    # contents: read는 checkout, id-token: write는 AWS OIDC 인증에 필요합니다.
     permissions:
       contents: read
       id-token: write
 
     steps:
-      # release PR은 title 또는 body에 vX.Y.Z 버전을 명시해야 한다.
+      # release PR 제목 또는 본문에서 vX.Y.Z 버전을 추출합니다.
+      # 의도: ECR image tag와 이후 Git tag를 같은 release version으로 맞춥니다.
       - name: Validate release version
         id: version
         shell: bash
         env:
+          # PR 제목을 shell env로 넘겨 quoting 문제를 줄입니다.
           PR_TITLE: ${{ github.event.pull_request.title }}
+          # PR 본문이 null일 수 있으므로 shell에서 기본값 처리합니다.
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
+          # shell 오류를 빠르게 감지합니다.
           set -euo pipefail
 
+          # 제목과 본문을 합쳐 release version을 찾습니다.
           release_text="${PR_TITLE}"$'\n'"${PR_BODY:-}"
+          # v1.2.3 형태의 첫 번째 version 문자열을 image tag로 사용합니다.
           image_tag="$(printf '%s\n' "${release_text}" | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
 
+          # release version이 없으면 잘못된 release PR로 보고 실패시킵니다.
           if [ -z "${image_tag}" ]; then
             echo "Release PR title or body must contain a version like v1.0.1."
             exit 1
           fi
 
+          # 다음 step에서 사용할 수 있도록 output으로 내보냅니다.
           echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
           echo "Release version: ${image_tag}"
 
+      # release image를 빌드할 소스코드를 checkout합니다.
       - name: Checkout
         uses: actions/checkout@v7
 
+      # release PR도 check를 먼저 돌리기 위해 JDK를 설치합니다.
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      # release PR의 Gradle dependency cache를 활성화합니다.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # release image를 push하기 전에 테스트/검증을 통과해야 합니다.
+      - name: Run checks
+        run: ./gradlew check --no-daemon
+
+      # Docker Buildx를 준비합니다.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # GitHub OIDC로 AWS role을 assume합니다.
+      # 의도: 장기 AWS access key를 저장하지 않고 ECR push 권한을 얻습니다.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # Docker가 ECR에 push할 수 있도록 registry login을 수행합니다.
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      # ECR image URI를 조합합니다.
       - name: Resolve release image tag
         id: release_image
         shell: bash
         run: |
           set -euo pipefail
 
+          # 예: registry/repository:v1.0.1
           image_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}:${{ steps.version.outputs.image_tag }}"
 
+          # build-push-action tags 입력에서 재사용합니다.
           echo "image_uri=${image_uri}" >> "$GITHUB_OUTPUT"
           echo "Release image: ${image_uri}"
 
+      # Dockerfile 기반으로 release image를 빌드하고 ECR에 push합니다.
+      # 의도: 실제 배포 산출물은 CI Gradle build가 아니라 Dockerfile 내부 bootJar로 만듭니다.
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
+          # release job이므로 push합니다.
           push: true
+          # release version tag만 push합니다.
+          # 개선 가능점: 추적성을 높이려면 sha-${{ github.sha }} 태그도 함께 push할 수 있습니다.
           tags: |
             ${{ steps.release_image.outputs.image_uri }}
-          cache-from: |
-            type=gha
-            type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache
-          cache-to: |
-            type=gha,mode=max
-            type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache,mode=max
+          # GitHub Actions Docker layer cache를 재사용합니다.
+          cache-from: type=gha
+          # ECR registry cache는 단순화를 위해 사용하지 않습니다.
+          cache-to: type=gha,mode=max
