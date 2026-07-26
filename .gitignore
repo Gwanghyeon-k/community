@@ -34,3 +34,12 @@ out/
 .env.dev
 
 /image
+
+### Kubernetes secrets ###
+k8s/secret.yml
+k8s/*secret*.yml
+k8s/**/secret.yml
+k8s/**/*secret*.yml
+!k8s/*secret*.example.yml
+!k8s/**/*secret*.example.yml
+!k8s/**/*secret*.example.yaml
