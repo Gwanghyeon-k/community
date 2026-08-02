@@ -1,0 +1,85 @@
+replicaCount: 3
+revisionHistoryLimit: 4
+
+image:
+  repository: 418295697072.dkr.ecr.ap-northeast-2.amazonaws.com/amumal-community-backend
+  tag: v0.1.2
+  pullPolicy: Always
+
+imagePullSecrets:
+  - name: ecr-registry-secret
+
+nameOverride: ""
+fullnameOverride: community-backend
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: http
+
+container:
+  port: 8080
+
+config:
+  SPRING_PROFILES_ACTIVE: dev
+  TOMCAT_MAX_THREADS: "20"
+  TOMCAT_MIN_SPARE_THREADS: "5"
+  HIKARI_MAX_POOL_SIZE: "10"
+  HIKARI_MIN_IDLE: "5"
+  AWS_REGION: ap-northeast-2
+
+secret:
+  name: community-backend-secret
+  mountPath: /etc/secrets/community-backend
+
+springConfigImport: optional:configtree:/etc/secrets/community-backend/
+
+probes:
+  path: /actuator/health
+  startup:
+    initialDelaySeconds: 30
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 24
+  readiness:
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 6
+  liveness:
+    initialDelaySeconds: 0
+    periodSeconds: 20
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+nodeSelector: {}
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: 500m
+    memory: 1Gi
+
+topologySpreadConstraints:
+  enabled: true
+  maxSkew: 1
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: DoNotSchedule
+
+ingress:
+  enabled: true
+  className: nginx
+  host: api.amumal-community.shop
+  path: /
+  pathType: Prefix
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 10m
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "5"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+  tls: []
+
+deployment:
+  progressDeadlineSeconds: 300
