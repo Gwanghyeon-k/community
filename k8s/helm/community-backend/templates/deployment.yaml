@@ -8,6 +8,7 @@ metadata:
 spec:
   replicas: {{ .Values.replicaCount }}
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  progressDeadlineSeconds: {{ .Values.deployment.progressDeadlineSeconds }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -22,8 +23,10 @@ spec:
         {{- include "community-backend.selectorLabels" . | nindent 8 }}
         tier: backend
     spec:
+      {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
-        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
