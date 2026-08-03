@@ -83,3 +83,9 @@ ingress:
 
 deployment:
   progressDeadlineSeconds: 300
+
+serviceMonitor:
+  enabled: true
+  releaseLabel: monitoring
+  path: /actuator/prometheus
+  interval: 30s
