@@ -3,7 +3,7 @@ revisionHistoryLimit: 4
 
 image:
   repository: 418295697072.dkr.ecr.ap-northeast-2.amazonaws.com/amumal-community-backend
-  tag: v0.1.2
+  tag: v0.2.0
   pullPolicy: Always
 
 imagePullSecrets:
