@@ -19,5 +19,5 @@ spec:
       kind: Deployment
     - group: networking.k8s.io
       kind: Ingress
-    - group: monitoring.coreos.co
+    - group: monitoring.coreos.com
       kind: ServiceMonitor
