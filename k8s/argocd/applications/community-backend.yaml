@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: community-backend
+  namespace: argocd
+spec:
+  project: community
+  source:
+    repoURL: https://github.com/Gwanghyeon-k/community.git
+    targetRevision: main
+    path: k8s/helm/community-backend
+    helm:
+      releaseName: community-backend
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: community
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=false
+      - PruneLast=true

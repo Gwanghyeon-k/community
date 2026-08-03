@@ -8,6 +8,9 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      # GitOps 배포 commit이 다시 CD를 실행하는 루프를 막습니다.
+      - 'k8s/helm/community-backend/values.yaml'
   # 수동 실행은 rollback 또는 재배포에 사용합니다.
   workflow_dispatch:
     inputs:
@@ -32,14 +35,6 @@ env:
 
   # 배포할 백엔드 ECR repository입니다.
   ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
-
-  # SSM 배포 대상 EC2 태그입니다.
-  # 의도: 특정 instance id를 workflow에 박지 않고 태그 기반으로 대상 서버를 찾습니다.
-  SSM_TARGET_SERVICE: ${{ vars.SSM_TARGET_SERVICE }}
-  SSM_TARGET_ENVIRONMENT: ${{ vars.SSM_TARGET_ENVIRONMENT }}
-
-  # EC2 내부 배포 디렉터리입니다. SSM 실행 중 Kubernetes manifest 임시 파일을 저장합니다.
-  DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
 
 jobs:
   # release image를 Kubernetes Deployment에 배포하는 단일 job입니다.
@@ -70,8 +65,8 @@ jobs:
           # tag 존재 여부와 tag 대상 commit 확인을 위해 shallow clone을 피합니다.
           fetch-depth: 0
 
-      # main에 merge된 release 라벨 PR의 title/body에서 vMAJOR.MINOR.PATCH를 찾아 release image tag로 사용합니다.
-      # 예: PR title "release: v1.0.1" -> Git tag v1.0.1 + ECR image tag v1.0.1
+      # main에 merge된 PR title에서 vMAJOR.MINOR.PATCH를 찾아 release image tag로 사용합니다.
+      # 예: PR title "release v1.0.1" -> Git tag v1.0.1 + ECR image tag v1.0.1
       - name: Resolve image tag from merged PR
         # 수동 재배포는 inputs.image_tag를 쓰므로 push 이벤트에서만 이 step을 실행합니다.
         if: github.event_name == 'push'
@@ -93,36 +88,37 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "${pulls_url}")"
 
-          # main에 merge되었고 release 라벨이 붙은 PR 중 가장 마지막 PR의 title/body를 선택합니다.
-          # 의도: 일반 main merge는 배포하지 않고 release 라벨 PR만 배포합니다.
-          release_text="$(jq -r '
+          # main에 merge된 PR 중 가장 마지막 PR title을 선택합니다.
+          # 의도: PR title의 version을 배포 version의 단일 출처로 사용합니다.
+          pr_title="$(jq -r '
             [
               .[]
               | select(
                   .base.ref == "main"
                   and .merged_at != null
-                  and ([.labels[].name] | index("release"))
                 )
             ]
             | sort_by(.number)
             | last
-            | if . == null then "" else [.title, (.body // "")] | join("\n") end
+            | if . == null then "" else .title end
           ' <<< "${pulls_json}")"
 
-          # release PR 텍스트에서 vX.Y.Z 형태의 tag를 추출합니다.
-          image_tag="$(printf '%s\n' "${release_text}" | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
+          # PR title에서 vX.Y.Z 형태의 tag를 추출합니다.
+          image_tag="$(printf '%s\n' "${pr_title}" | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
 
-          # release 라벨 PR이 아니면 배포 대상이 아니므로 실패가 아니라 skip으로 처리합니다.
-          if [ -z "${release_text}" ]; then
-            echo "No merged release PR found for this push. Skipping deployment."
+          # 연결된 PR이 없으면 배포 대상이 아니므로 실패가 아니라 skip으로 처리합니다.
+          if [ -z "${pr_title}" ]; then
+            echo "No merged PR found for this push. Skipping deployment."
             echo "should_deploy=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # release PR인데 version이 없으면 잘못된 release 절차이므로 실패시킵니다.
-          if [[ ! "${image_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Merged release PR title or body must contain a release version like v1.0.1."
-            exit 1
+          # version이 없으면 일반 main merge로 판단하고 배포를 skip합니다.
+          if [ -z "${image_tag}" ]; then
+            echo "Merged PR title does not contain release version. Skipping deployment."
+            echo "PR title: ${pr_title}"
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
           # 이미 같은 tag가 존재하면 같은 commit을 가리키는지 확인합니다.
@@ -176,17 +172,17 @@ jobs:
             exit 1
           fi
 
-          # EC2 deploy.sh에 넘길 full image URI입니다.
+          # ECR 검증과 로그 출력에 사용할 full image URI입니다.
           image_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}:${image_tag}"
 
-          # 이후 ECR 검증, SSM payload 생성에서 재사용합니다.
+          # 이후 ECR 검증과 Helm values 갱신에서 재사용합니다.
           echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
           echo "image_uri=${image_uri}" >> "$GITHUB_OUTPUT"
 
           echo "Deploy image: ${image_uri}"
 
       # 배포 전에 ECR에 해당 image tag가 실제 존재하는지 확인합니다.
-      # 의도: EC2에서 docker pull 실패로 늦게 터지는 것을 GitHub Actions 단계에서 먼저 잡습니다.
+      # 의도: ArgoCD가 rollout하기 전에 image tag 누락을 GitHub Actions에서 먼저 잡습니다.
       - name: Verify image exists in ECR
         if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
         shell: bash
@@ -198,228 +194,44 @@ jobs:
             --image-ids imageTag="${{ steps.image.outputs.image_tag }}" \
             --region "${AWS_REGION}" >/dev/null
 
-      # Kubernetes master node에서 실행할 SSM command payload를 생성합니다.
-      # 분리된 k8s/backend/*.yaml 파일을 하나의 manifest로 합쳐 SSM payload에 포함합니다.
-      - name: Create SSM command payload
+      # Helm values의 image tag를 갱신합니다.
+      # 의도: ArgoCD가 Git에 선언된 desired state를 보고 배포하게 합니다.
+      - name: Update Helm image tag
         if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
         shell: bash
         env:
-          # deploy.sh가 사용할 image tag입니다.
           IMAGE_TAG: ${{ steps.image.outputs.image_tag }}
-          # deploy.sh가 pull/run할 full image URI입니다.
-          IMAGE_URI: ${{ steps.image.outputs.image_uri }}
         run: |
           set -euo pipefail
 
-          combined_manifest="$(mktemp)"
-          for manifest in \
-            k8s/backend/namespace.yaml \
-            k8s/backend/configmap.yaml \
-            k8s/backend/deployment.yaml \
-            k8s/backend/service.yaml
-          do
-            cat "${manifest}" >> "${combined_manifest}"
-            printf '\n---\n' >> "${combined_manifest}"
-          done
+          values_file="k8s/helm/community-backend/values.yaml"
 
-          # EC2에서 실행할 Kubernetes 배포 스크립트입니다.
-          # kubeconfig는 ubuntu 사용자 설정을 우선 사용하고, 없으면 kubeadm 기본 admin.conf를 사용합니다.
-          read -r -d '' K8S_DEPLOY_SCRIPT <<'SCRIPT' || true
-          set -euo pipefail
+          sed -i -E "s/^  tag: .*/  tag: ${IMAGE_TAG}/" "${values_file}"
+          git diff -- "${values_file}"
 
-          mkdir -p "${DEPLOY_DIR}"
-
-          if [ -z "${KUBECONFIG:-}" ]; then
-            if [ -f /home/ubuntu/.kube/config ]; then
-              export KUBECONFIG=/home/ubuntu/.kube/config
-            elif [ -f /etc/kubernetes/admin.conf ]; then
-              export KUBECONFIG=/etc/kubernetes/admin.conf
-            else
-              echo "No kubeconfig found. Expected /home/ubuntu/.kube/config or /etc/kubernetes/admin.conf."
-              exit 1
-            fi
-          fi
-
-          manifest_file="${DEPLOY_DIR}/community-backend.yaml"
-
-          kubectl version --client
-          kubectl get nodes -o wide
-
-          kubectl create namespace community --dry-run=client -o yaml | kubectl apply -f -
-
-          ecr_password="$(aws ecr get-login-password --region "${AWS_REGION}")"
-          kubectl create secret docker-registry ecr-registry-secret \
-            -n community \
-            --docker-server="${ECR_REGISTRY}" \
-            --docker-username=AWS \
-            --docker-password="${ecr_password}" \
-            --dry-run=client \
-            -o yaml | kubectl apply -f -
-
-          kubectl apply -f "${manifest_file}"
-          kubectl set image deployment/community-backend backend="${IMAGE_URI}" -n community
-          kubectl rollout status deployment/community-backend -n community --timeout=300s
-
-          kubectl get deployment community-backend -n community -o wide
-          kubectl get pod -n community -l app=community-backend -o wide
-          kubectl get service community-backend -n community -o wide
-          SCRIPT
-
-          # jq로 SSM parameters JSON을 생성합니다.
-          # @sh를 사용해 값들을 shell-safe하게 export 문으로 변환합니다.
-          jq -n \
-            --arg aws_region "${AWS_REGION}" \
-            --arg ecr_registry "${ECR_REGISTRY}" \
-            --arg image_uri "${IMAGE_URI}" \
-            --arg image_tag "${IMAGE_TAG}" \
-            --arg deploy_dir "${DEPLOY_DIR}" \
-            --arg script "${K8S_DEPLOY_SCRIPT}" \
-            --rawfile manifest "${combined_manifest}" \
-            '{
-              commands: [
-                "export AWS_REGION=" + ($aws_region | @sh) + "\n" +
-                "export ECR_REGISTRY=" + ($ecr_registry | @sh) + "\n" +
-                "export IMAGE_URI=" + ($image_uri | @sh) + "\n" +
-                "export IMAGE_TAG=" + ($image_tag | @sh) + "\n" +
-                "export DEPLOY_DIR=" + ($deploy_dir | @sh) + "\n" +
-                "cat > " + ($deploy_dir | @sh) + "/community-backend.yaml <<'\''K8S_MANIFEST'\''\n" +
-                $manifest +
-                "\nK8S_MANIFEST\n" +
-                $script
-              ]
-            }' > ssm-parameters.json
-
-      # SSM 대상 Kubernetes master EC2가 실제로 존재하는지 미리 확인합니다.
-      # 의도: send-command가 대상 없이 성공/대기하는 상황을 피합니다.
-      - name: Verify SSM target instances exist
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
-        id: targets
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # Service/Environment 태그가 일치하고 running 상태인 EC2만 배포 대상으로 봅니다.
-          # 이 태그는 Kubernetes master node를 가리켜야 합니다.
-          target_instance_ids="$(aws ec2 describe-instances \
-            --region "${AWS_REGION}" \
-            --filters \
-              "Name=tag:Service,Values=${SSM_TARGET_SERVICE}" \
-              "Name=tag:Environment,Values=${SSM_TARGET_ENVIRONMENT}" \
-              "Name=instance-state-name,Values=running" \
-            --query "Reservations[].Instances[].InstanceId" \
-            --output text)"
-
-          # 대상이 없으면 명확한 오류를 내고 중단합니다.
-          if [ -z "${target_instance_ids}" ]; then
-            echo "No running EC2 instances found for SSM target tags."
-            echo "Required tags:"
-            echo "  Service=${SSM_TARGET_SERVICE}"
-            echo "  Environment=${SSM_TARGET_ENVIRONMENT}"
-            exit 1
-          fi
-
-          # Wait 단계에서 instance별 command 결과를 조회하기 위해 output으로 저장합니다.
-          echo "SSM target instances: ${target_instance_ids}"
-          echo "instance_ids=${target_instance_ids}" >> "$GITHUB_OUTPUT"
-
-      # 태그가 일치하는 Kubernetes master EC2에 SSM RunShellScript 명령을 보냅니다.
-      - name: Run deployment on tagged EC2 instances
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
-        id: ssm
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # master node 대상 배포이므로 일반적으로 대상은 1대입니다.
-          # max-errors 0은 한 인스턴스라도 실패하면 전체 배포를 실패로 봅니다.
-          command_id="$(aws ssm send-command \
-            --document-name "AWS-RunShellScript" \
-            --comment "Rollout ${{ steps.image.outputs.image_tag }} to community backend deployment" \
-            --targets \
-              "Key=tag:Service,Values=${SSM_TARGET_SERVICE}" \
-              "Key=tag:Environment,Values=${SSM_TARGET_ENVIRONMENT}" \
-            --max-concurrency "50%" \
-            --max-errors "0" \
-            --parameters file://ssm-parameters.json \
-            --query "Command.CommandId" \
-            --output text)"
-
-          # SSM command 결과 조회에 사용할 id입니다.
-          echo "command_id=${command_id}" >> "$GITHUB_OUTPUT"
-          echo "SSM command id: ${command_id}"
-
-      # SSM command 실행 결과를 기다리고 EC2 stdout/stderr를 GitHub Actions 로그에 출력합니다.
-      - name: Wait for EC2 deployment result
+      # 변경된 Helm values를 main에 commit/push합니다.
+      # 의도: ArgoCD가 Git 변경을 감지해서 배포하도록 합니다.
+      - name: Commit and push Helm values
         if: ${{ github.event_name == 'workflow_dispatch' || steps.version.outputs.should_deploy == 'true' }}
         shell: bash
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.image_tag }}
         run: |
           set -euo pipefail
 
-          # 앞 step에서 발급받은 SSM command id입니다.
-          command_id="${{ steps.ssm.outputs.command_id }}"
-          # 배포 대상 instance 목록입니다.
-          instance_ids="${{ steps.targets.outputs.instance_ids }}"
-          # 하나라도 실패하면 마지막에 job을 실패시키기 위한 flag입니다.
-          failed=0
+          values_file="k8s/helm/community-backend/values.yaml"
 
-          # 각 instance의 SSM command 상태를 개별 확인합니다.
-          for instance_id in ${instance_ids}; do
-            echo "Waiting for deployment on ${instance_id}"
-
-            # 최대 60회 * 5초 = 5분 동안 결과를 기다립니다.
-            # 개선 가능점: 이미지 pull 시간이 길면 timeout을 늘리는 것이 안전합니다.
-            for attempt in $(seq 1 60); do
-              status="$(aws ssm get-command-invocation \
-                --region "${AWS_REGION}" \
-                --command-id "${command_id}" \
-                --instance-id "${instance_id}" \
-                --query "Status" \
-                --output text 2>/dev/null || true)"
-
-              # terminal 상태면 polling을 종료합니다.
-              case "${status}" in
-                Success|Failed|TimedOut|Cancelled|Cancelling)
-                  break
-                  ;;
-                *)
-                  sleep 5
-                  ;;
-              esac
-            done
-
-            # EC2에서 실행된 deploy.sh stdout을 가져옵니다.
-            stdout="$(aws ssm get-command-invocation \
-              --region "${AWS_REGION}" \
-              --command-id "${command_id}" \
-              --instance-id "${instance_id}" \
-              --query "StandardOutputContent" \
-              --output text 2>/dev/null || true)"
-
-            # EC2에서 실행된 deploy.sh stderr를 가져옵니다.
-            stderr="$(aws ssm get-command-invocation \
-              --region "${AWS_REGION}" \
-              --command-id "${command_id}" \
-              --instance-id "${instance_id}" \
-              --query "StandardErrorContent" \
-              --output text 2>/dev/null || true)"
-
-            # GitHub Actions 로그에서 EC2별 배포 결과를 확인할 수 있게 출력합니다.
-            echo "Deployment status for ${instance_id}: ${status}"
-            echo "----- stdout (${instance_id}) -----"
-            printf '%s\n' "${stdout}"
-            echo "----- stderr (${instance_id}) -----"
-            printf '%s\n' "${stderr}"
-
-            # 하나라도 Success가 아니면 전체 CD를 실패 처리합니다.
-            if [ "${status}" != "Success" ]; then
-              failed=1
-            fi
-          done
-
-          # 실패한 instance가 있으면 job을 실패시킵니다.
-          if [ "${failed}" -ne 0 ]; then
-            exit 1
+          if git diff --quiet -- "${values_file}"; then
+            echo "${values_file} already uses ${IMAGE_TAG}. Nothing to commit."
+            exit 0
           fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add "${values_file}"
+          git commit -m "chore: deploy backend ${IMAGE_TAG} [skip ci]"
+          git push origin HEAD:main
 
       # 배포 성공 후 Git tag를 생성합니다.
       # 의도: main commit, ECR image tag, release version을 같은 vX.Y.Z로 묶어 추적성을 확보합니다.

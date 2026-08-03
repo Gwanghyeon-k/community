@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: community
+  namespace: argocd
+spec:
+  description: Community services
+  sourceRepos:
+    - https://github.com/Gwanghyeon-k/community.git
+  destinations:
+    - namespace: community
+      server: https://kubernetes.default.svc
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Service
+    - group: apps
+      kind: Deployment
+    - group: networking.k8s.io
+      kind: Ingress
