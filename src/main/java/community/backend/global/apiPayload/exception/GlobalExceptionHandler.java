@@ -11,6 +11,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -23,6 +25,11 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException exception) {
     ErrorCode errorCode = exception.getErrorCode();
     return ApiResponse.onFailure(errorCode);
+  }
+
+  @ExceptionHandler({NoHandlerFoundException.class, NoResourceFoundException.class})
+  public ResponseEntity<ApiResponse<Void>> handleNotFound(Exception exception) {
+    return ApiResponse.onFailure(ErrorCode.NOT_FOUND);
   }
 
   /**
